@@ -54,7 +54,11 @@ ADRs 0001–0005, `refrence/` screenshots) **do not exist in the repo** — only
 `docs/adr/0007-agentic-tool-registry.md` exist. Do not re-create or
 "restore" the missing ones from memory. Design tokens are implemented
 directly in `src/app/globals.css` (dark-first CSS variables + a light theme
-block). No git commits exist yet; the tree is uncommitted.
+block). The repo is under git (`main`, ~26 commits) since 2026-08-19.
+Repo hygiene: `.github/dependabot.yml` enables weekly npm dependency
+updates, consolidated via the `/consolidate-deps` skill (`.claude/skills/`),
+and `SECURITY.md` defines the vulnerability-reporting policy. `AUTONOMOUS_REPORT.md`
+documents the 2026-08-19 dependency consolidation session.
 
 ## Commands
 - `npm run dev` — start the Next.js dev server on http://localhost:3000
@@ -68,7 +72,9 @@ block). No git commits exist yet; the tree is uncommitted.
   `src/**/__tests__/**/*.test.ts`, node environment)
 
 ## Tech stack (fixed)
-- Next.js 16 (App Router), React 19, TypeScript strict
+- Next.js 16 (App Router), React 19, TypeScript strict (pinned to 5.x —
+  TS 7.0 is deferred: typescript-eslint peer range is still `<6.1.0`,
+  so it breaks `npm run lint`; do not bump TypeScript until that clears)
 - Tailwind CSS v4 (`@import "tailwindcss"` + `@theme inline` bridging the
   design-token CSS variables in `globals.css`)
 - Route Handlers only — Node runtime (`export const runtime = "nodejs"`),
@@ -231,13 +237,19 @@ data/
 - Chat history and API-profile config are **user data in `data/` and
   `localStorage`** — never commit them; `.gitignore` covers `/data`.
 - Don't jump straight to code from a feature request — check whether it
-  changes an existing decision (ADRs 0006/0007). Notable drift-to-fix: the
-  ADR-0006 UI toggle isn't rendered — `Composer.tsx` declares
-  `webSearchEnabled`/`onWebSearchToggle` props but no control is wired, and
-  the AppShell flag (`useState(true)`) isn't persisted; old docs claiming a
+  changes an existing decision (ADRs 0006/0007). Known small drift: the
+  web-search toggle IS rendered in `Composer.tsx`, but the `AppShell` flag
+  (`useState(true)`) isn't persisted across reloads; old docs claiming a
   backend-type switch.
 - If a change would add a second backend adapter, make it one new file
   implementing `ChatBackend` — never branch on backend identity in the UI.
 - No telemetry or outbound calls other than to the user's configured
   backend, the RAG embeddings endpoint on that same backend, and (when the
   toggle is on) DuckDuckGo.
+- Dependency bumps arrive as scattered Dependabot PRs. Consolidate them with
+  the `/consolidate-deps` skill (`/.claude/skills/consolidate-deps`) instead
+  of merging bot PRs one by one. It groups them into a single verified PR
+  with a changelog, defers majors that break the toolchain, and closes the
+  individual PRs as superseded. Verified majors are gated on build + test.
+  Vulnerability reporting follows `SECURITY.md`; Dependabot runs weekly per
+  `.github/dependabot.yml`.
