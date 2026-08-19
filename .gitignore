@@ -49,3 +49,10 @@ next-env.d.ts
 /scratch_test.js
 /test-yahoo2.js
 /test_curl.html
+
+# Local-only developer docs (kept out of the public repo)
+/CLAUDE.md
+/AGENTS.md
+
+# Playwright MCP local debug artifacts (console logs, page captures)
+/.playwright-mcp/
