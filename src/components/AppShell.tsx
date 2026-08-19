@@ -49,6 +49,12 @@ export function AppShell() {
   const [selectedModel, setSelectedModel] = useState("");
   const [streamingConversationIds, setStreamingConversationIds] = useState<string[]>([]);
   const abortControllersRef = useRef<{ [convId: string]: AbortController }>({});
+  // Persistence is debounced so streaming bursts (one setState per token)
+  // don't synchronously serialize the whole conversation history to
+  // localStorage on every token. The latest state + a final flush on tab
+  // teardown guarantee nothing is lost. (P2 perf finding)
+  const saveTimerRef = useRef<number | null>(null);
+  const pendingConversationsRef = useRef<Conversation[]>([]);
   // Web-search tool offering (ADR-0006). Persisted; default OFF — the small
   // local models this app typically talks to cannot emit reliable tool calls,
   // so offering tools just produces narration instead of answers. The toggle
@@ -714,11 +720,49 @@ export function AppShell() {
     isActive: c.id === activeConversationId,
   }));
 
+  // Debounced persistence — flush at most once every 300ms during streaming.
   useEffect(() => {
-    if (isHydrated) {
-      saveConversations(conversations);
-    }
+    if (!isHydrated) return;
+    pendingConversationsRef.current = conversations;
+    if (saveTimerRef.current !== null) return; // a flush is already scheduled
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      if (pendingConversationsRef.current) {
+        saveConversations(pendingConversationsRef.current);
+      }
+    }, 300);
   }, [conversations, isHydrated]);
+
+  useEffect(() => {
+    // Final flush on unmount / tab close so the debounce never loses the tail.
+    const flush = () => {
+      if (saveTimerRef.current !== null) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      if (pendingConversationsRef.current) {
+        try {
+          saveConversations(pendingConversationsRef.current);
+        } catch {
+          // localStorage may be unavailable during teardown — ignore.
+        }
+      }
+    };
+    window.addEventListener("beforeunload", flush);
+    const suppress = (e: BeforeUnloadEvent) => {
+      // Run the flush synchronously BEFORE the page unloads. The callback's
+      // payloads are best-effort; localStorage survives across the navigation.
+      flush();
+      // Don't show a browser prompt — the flush is synchronous.
+      delete e.returnValue;
+    };
+    window.addEventListener("pagehide", suppress);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", suppress);
+      flush();
+    };
+  }, []);
 
   useEffect(() => {
     if (isHydrated) {
