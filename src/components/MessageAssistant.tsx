@@ -2,9 +2,10 @@
 
 import React, { useState, useCallback } from "react";
 import { CogitoMark } from "./CogitoBrand";
-import { CopyIcon, CheckIcon, ChevronDownIcon, SearchIcon } from "./Icons";
+import { CopyIcon, CheckIcon } from "./Icons";
 import { SourceChips } from "./SourceChips";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { ThinkingPanel, type ThinkingItem } from "./ThinkingPanel";
 import type { SourceCitation } from "@/lib/rag/types";
 
 interface MessageAssistantProps {
@@ -193,10 +194,27 @@ export function MessageAssistant({
     });
   }, [rawCopyText]);
 
-  const [openStates, setOpenStates] = useState<Record<number, boolean>>({});
-  const toggleBlock = useCallback((idx: number, open: boolean) => {
-    setOpenStates(prev => ({ ...prev, [idx]: open }));
-  }, []);
+  const groups: Array<
+    | { type: "text"; content: string }
+    | { type: "thought_group"; items: ThinkingItem[] }
+  > = [];
+  {
+    let current: ThinkingItem[] = [];
+    for (const block of blocks) {
+      if (block.type === "text") {
+        if (current.length > 0) {
+          groups.push({ type: "thought_group", items: current });
+          current = [];
+        }
+        groups.push({ type: "text", content: block.content ?? "" });
+      } else {
+        current.push(block as ThinkingItem);
+      }
+    }
+    if (current.length > 0) {
+      groups.push({ type: "thought_group", items: current });
+    }
+  }
 
   return (
     <div className="group animate-fade-in" style={{ marginBottom: "var(--message-gap)" }}>
@@ -208,136 +226,27 @@ export function MessageAssistant({
 
         {/* Message content */}
         <div className="flex-1 min-w-0" data-role="assistant">
-          {(() => {
-            type BlockType = typeof blocks[0];
-            type GroupType = BlockType | { type: "thought_group"; items: BlockType[] };
-            
-            const groupedBlocks: GroupType[] = [];
-            let currentGroup: BlockType[] = [];
-            for (const block of blocks) {
-              if (block.type === "text") {
-                if (currentGroup.length > 0) {
-                  groupedBlocks.push({ type: "thought_group", items: currentGroup });
-                  currentGroup = [];
-                }
-                groupedBlocks.push(block);
-              } else {
-                currentGroup.push(block);
-              }
+          {groups.map((group, groupIdx) => {
+            if (group.type === "thought_group") {
+              return (
+                <ThinkingPanel
+                  key={groupIdx}
+                  items={group.items}
+                  isStreaming={isStreaming}
+                  isActive={groupIdx === groups.length - 1}
+                />
+              );
             }
-            if (currentGroup.length > 0) {
-              groupedBlocks.push({ type: "thought_group", items: currentGroup });
-            }
-
-            return groupedBlocks.map((group, groupIdx) => {
-              if (group.type === "thought_group") {
-                const isOpen = openStates[groupIdx] ?? true;
-                return (
-                  <details
-                    key={groupIdx}
-                    className="mb-4 text-sm-ui group"
-                    open={isOpen}
-                    onToggle={(e) => toggleBlock(groupIdx, e.currentTarget.open)}
-                  >
-                    <summary className="inline-flex items-center gap-2.5 cursor-pointer select-none outline-none text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150 list-none [&::-webkit-details-marker]:hidden">
-                      {isStreaming && groupIdx === groupedBlocks.length - 1 ? (
-                        <span className="font-medium animate-pulse text-[var(--accent-primary)]">Thinking...</span>
-                      ) : (
-                        <span className="font-medium">Thought process</span>
-                      )}
-                      <ChevronDownIcon
-                        size={12}
-                        className="opacity-50 transition-transform duration-200 group-open:rotate-180"
-                      />
-                    </summary>
-                    <div className="mt-3 ml-2 border-l-[2px] border-[var(--border-subtle)] space-y-4">
-                      {group.items.map((item, itemIdx) => {
-                        if (item.type === "thought") {
-                          return (
-                            <div
-                              key={itemIdx}
-                              className="pl-4 text-[var(--text-secondary)] opacity-90 whitespace-pre-wrap leading-relaxed"
-                              style={{ fontSize: "0.95em", fontFamily: "var(--font-body)" }}
-                            >
-                              {item.content}
-                            </div>
-                          );
-                        }
-                        if (item.type === "search" || item.type === "step") {
-                          let label = item.content || "";
-                          if (item.type === "step") {
-                            const qMatch = label.match(/for "([^"]+)"/);
-                            if (qMatch) {
-                              label = qMatch[1];
-                            } else {
-                              label = label.replace(/^Action:\s*Using.*?\.\.\.$/i, "Running tool").trim();
-                            }
-                          }
-                          return (
-                            <div key={itemIdx} className="pl-4 inline-flex items-center gap-2 text-sm-ui text-[var(--text-secondary)]">
-                              <SearchIcon size={14} className="opacity-70" />
-                              <span className="opacity-70">Searched:</span>
-                              <span className="font-medium text-[var(--text-primary)] opacity-90">{label}</span>
-                            </div>
-                          );
-                        }
-                        if (item.type === "tool_results") {
-                          const resultStateKey = groupIdx * 1000 + itemIdx;
-                          const isResultOpen = openStates[resultStateKey] ?? false;
-                          return (
-                            <details
-                              key={itemIdx}
-                              className="pl-4 text-sm-ui group/results"
-                              open={isResultOpen}
-                              onToggle={(e) => toggleBlock(resultStateKey, e.currentTarget.open)}
-                            >
-                              <summary className="inline-flex items-center gap-2 cursor-pointer select-none outline-none text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150 list-none [&::-webkit-details-marker]:hidden">
-                                <ChevronDownIcon
-                                  size={14}
-                                  className="transition-transform duration-200 group-open/results:rotate-180"
-                                />
-                                <span className="font-medium">Search results ({item.items?.length})</span>
-                              </summary>
-                              <ul className="mt-2 ml-6 space-y-2 border-l-[2px] border-[var(--border-subtle)] pl-3">
-                                {item.items?.map((res, i) => (
-                                  <li key={i}>
-                                    <a
-                                      href={res.url || undefined}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="block text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                                    >
-                                      <span className="block font-medium text-[var(--text-primary)]">{res.title}</span>
-                                      {res.snippet && (
-                                        <span className="block opacity-80">{res.snippet}</span>
-                                      )}
-                                      {res.url && (
-                                        <span className="block text-xs opacity-60 break-all">{res.url}</span>
-                                      )}
-                                    </a>
-                                  </li>
-                                ))}
-                              </ul>
-                            </details>
-                          );
-                        }
-                        return null;
-                      })}
-                    </div>
-                  </details>
-                );
-              }
-
-              if (group.type === "text") {
-                return (
-                  <div key={groupIdx} className={`min-w-0 break-words ${groupIdx < groupedBlocks.length - 1 ? "mb-4" : ""}`} data-role="assistant-visible-text">
-                    <MarkdownRenderer content={group.content || ""} />
-                  </div>
-                );
-              }
-              return null;
-            });
-          })()}
+            return (
+              <div
+                key={groupIdx}
+                className={`min-w-0 break-words ${groupIdx < groups.length - 1 ? "mb-4" : ""}`}
+                data-role="assistant-visible-text"
+              >
+                <MarkdownRenderer content={group.content} />
+              </div>
+            );
+          })}
 
           {!isStreaming && !hasVisibleText && hasThoughts && (
             <p
