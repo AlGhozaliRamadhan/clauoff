@@ -233,7 +233,6 @@ export function MessageAssistant({
                   key={groupIdx}
                   items={group.items}
                   isStreaming={isStreaming}
-                  isActive={groupIdx === groups.length - 1}
                 />
               );
             }

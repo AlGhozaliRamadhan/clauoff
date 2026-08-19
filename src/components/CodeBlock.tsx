@@ -24,7 +24,16 @@ export const CodeBlock = memo(function CodeBlock({ language, value }: CodeBlockP
         });
         if (isMounted) setHtml(result);
       } catch (err) {
-        if (isMounted) setHtml(`<pre><code>${value}</code></pre>`);
+        // Failure fallback: shiki failed to highlight, so render plain text.
+        // Escape the source before putting it in innerHTML — model output must
+        // never be trusted as HTML (a failure here used to be an XSS sink).
+        if (isMounted) {
+          const escaped = value
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+          setHtml(`<pre><code>${escaped}</code></pre>`);
+        }
       }
     };
     highlight();

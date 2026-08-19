@@ -32,10 +32,13 @@ export interface ThinkingItem {
 interface ThinkingPanelProps {
   /** Non-text blocks belonging to one thought group, in stream order. */
   items: ThinkingItem[];
-  /** Whether this message is currently streaming from the backend. */
+  /**
+   * Whether this message is currently streaming from the backend.
+   * isStreaming implies this is precisely the message being produced, so it
+   * is the correct "live" signal — the last group in a normal streamed
+   * message is the visible answer, not the thought block.
+   */
   isStreaming: boolean;
-  /** Whether this is the last (most recent) assistant message. */
-  isActive: boolean;
 }
 
 type LogStatus = "done" | "running" | "failed" | "interrupted" | "info";
@@ -251,7 +254,7 @@ function ResultList({
   );
 }
 
-export function ThinkingPanel({ items, isStreaming, isActive }: ThinkingPanelProps) {
+export function ThinkingPanel({ items, isStreaming }: ThinkingPanelProps) {
   // null = not set by the user yet → follows the "live" default.
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const [resultsOpen, setResultsOpen] = useState<Record<number, boolean>>({});
@@ -259,7 +262,7 @@ export function ThinkingPanel({ items, isStreaming, isActive }: ThinkingPanelPro
   const entries = buildThinkingLog(items, isStreaming);
   if (entries.length === 0) return null;
 
-  const live = isStreaming && isActive;
+  const live = isStreaming;
   const isExpanded = userOpen ?? live;
 
   const doneCount = entries.filter((e) => e.status === "done").length;
