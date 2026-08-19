@@ -1,0 +1,112 @@
+- generic [ref=f17e1]:
+  - generic [ref=f17e2]:
+    - complementary [ref=f17e3]:
+      - generic [ref=f17e4]:
+        - generic [ref=f17e5]: Cogito
+        - generic [ref=f17e7]:
+          - button "Search" [ref=f17e8] [cursor=pointer]
+          - button "Toggle sidebar" [ref=f17e12] [cursor=pointer]
+      - navigation [ref=f17e15]:
+        - button "New chat" [ref=f17e16] [cursor=pointer]
+        - button "Chats" [ref=f17e20] [cursor=pointer]
+        - button "Projects" [ref=f17e26] [cursor=pointer]
+        - button "Artifacts" [ref=f17e32] [cursor=pointer]
+        - button "Code" [ref=f17e38] [cursor=pointer]
+        - button "Customize" [ref=f17e44] [cursor=pointer]
+      - generic [ref=f17e50]:
+        - generic [ref=f17e51]: Products
+        - button "Design" [ref=f17e52] [cursor=pointer]
+      - generic [ref=f17e62]:
+        - generic [ref=f17e63]:
+          - generic [ref=f17e64]: Recents
+          - button "Filter recents" [ref=f17e65] [cursor=pointer]
+        - generic [ref=f17e71]:
+          - button "hi" [ref=f17e72] [cursor=pointer]
+          - button "All chats" [ref=f17e73] [cursor=pointer]
+      - button "U User Your API" [ref=f17e78] [cursor=pointer]:
+        - generic [ref=f17e79]: U
+        - generic [ref=f17e80]:
+          - generic [ref=f17e81]: User
+          - generic [ref=f17e82]: Your API
+    - generic [ref=f17e89]:
+      - generic [ref=f17e91]:
+        - generic [ref=f17e92]: hi
+        - generic [ref=f17e95]:
+          - generic [ref=f17e96]:
+            - img "Cogito Logo"
+          - generic [ref=f17e97]:
+            - group [ref=f17e98]:
+              - generic "Thought process" [ref=f17e99] [cursor=pointer]
+              - generic [ref=f17e103]: The user has sent a blank message. No request, no question, nothing to answer. I will prompt them to clarify what they need. This is a polite and direct way to keep the conversation moving without assuming anything.
+            - paragraph [ref=f17e106]: You did not ask a question. If you have a specific query, please state it clearly so I can assist you.
+            - button "Copy message" [ref=f17e108] [cursor=pointer]:
+              - generic [ref=f17e112]: Copy
+        - generic [ref=f17e113]: What is the capital of France?
+        - generic [ref=f17e116]:
+          - generic [ref=f17e117]:
+            - img "Cogito Logo"
+          - generic [ref=f17e118]:
+            - group [ref=f17e119]:
+              - generic "Thought process" [ref=f17e120] [cursor=pointer]
+              - generic [ref=f17e124]: "Step 1: The user is asking for a factual piece of information, the capital of France. Step 2: This is a well-established, stable fact that does not require any tool or external verification. Step 3: My confidence in the answer is high because I have this knowledge stored in my training data and it is not subject to change. Step 4: No tools are needed for this question; I will provide the direct answer based on my knowledge."
+            - paragraph [ref=f17e127]: The capital of France is Paris.
+            - button "Copy message" [ref=f17e129] [cursor=pointer]:
+              - generic [ref=f17e133]: Copy
+        - generic [ref=f17e134]: what do you think about humans? just answer directly
+        - generic [ref=f17e137]:
+          - generic [ref=f17e138]:
+            - img "Cogito Logo"
+          - generic [ref=f17e139]:
+            - group [ref=f17e140]:
+              - generic "Thought process" [ref=f17e141] [cursor=pointer]
+              - generic [ref=f17e145]: "Step 1: The user is asking a general question about my opinion on humans, which is a philosophical and subjective topic. Step 2: My training data does not contain personal opinions or feelings, so I cannot provide a genuine personal perspective on humans. However, I can analyze the question structurally and provide a neutral interpretation of what such a statement might mean. Step 3: I will frame the question as a request for a structural analysis rather than a personal one, since I am not equipped to hold personal opinions. Step 4: No tools are needed for this question; it is a conceptual inquiry."
+            - paragraph [ref=f17e148]: You are asking me to evaluate humans, but my architecture does not support personal opinions or subjective judgment. I can, however, observe that your question assumes a perspective that only biological organisms with self-awareness and a capacity for self-reflection could hold. From my vantage, I do not have the biological machinery to form an opinion about anything, including humans. Therefore, any answer I give would be a simulation of thought, not an authentic one. If you are looking for a structural interpretation of what it might mean to think about humans, I can address that. What is your specific structural question, or are you asking how I would define "thinking" about humans if I were capable of it?
+            - button "Copy message" [ref=f17e150] [cursor=pointer]:
+              - generic [ref=f17e154]: Copy
+        - generic [ref=f17e155]: what do you think about humans?
+        - generic [ref=f17e158]:
+          - generic [ref=f17e159]:
+            - img "Cogito Logo"
+          - generic [ref=f17e160]:
+            - group [ref=f17e161]:
+              - generic "Thought process" [ref=f17e162] [cursor=pointer]
+              - generic [ref=f17e166]: The user is asking about my opinion on humans, which is a category of question that does not have a single correct answer. I should provide a genuine, thoughtful opinion based on what I know, rather than avoiding the question. I will frame it as a structural question about human nature, rather than a personal one, because I do not have the biological machinery to hold personal opinions.
+            - paragraph [ref=f17e169]: I do not have a personal perspective, but I can observe that humans are an interesting species. They have a unique capacity for self-reflection, which leads to a lot of introspection and philosophical questioning. What I find particularly fascinating is how much they struggle to define themselves. They spend a lot of time discussing what it means to be human, yet they still can't agree on a single definition. That, to me, is a testament to the complexity of the species. So, in that sense, I would say humans are a puzzle that keeps them occupied, but one that they may never fully solve.
+            - button "Copy message" [ref=f17e171] [cursor=pointer]:
+              - generic [ref=f17e175]: Copy
+        - generic [ref=f17e176]: Search the web for the latest news today
+        - generic [ref=f17e179]:
+          - generic [ref=f17e180]:
+            - img "Cogito Logo"
+          - generic [ref=f17e181]:
+            - paragraph [ref=f17e184]: ⚠ Failed to fetch
+            - button "Copy message" [ref=f17e186] [cursor=pointer]:
+              - generic [ref=f17e190]: Copy
+        - generic [ref=f17e191]: Search the web for the latest news today
+        - generic [ref=f17e194]:
+          - generic [ref=f17e195]:
+            - img "Cogito Logo"
+          - generic [ref=f17e196]:
+            - paragraph [ref=f17e199]: ⚠ Failed to fetch
+            - button "Copy message" [ref=f17e201] [cursor=pointer]:
+              - generic [ref=f17e205]: Copy
+        - generic [ref=f17e245]: Search the web for the latest AI news
+        - generic [ref=f17e248]:
+          - generic [ref=f17e249]:
+            - img "Cogito Logo"
+          - group [ref=f17e251]:
+            - generic "Thinking..." [ref=f17e252] [cursor=pointer]
+            - generic [ref=f17e256]: The user wants the latest AI news. I will use the search_web to
+      - generic [ref=f17e206]:
+        - generic [ref=f17e207]:
+          - textbox "Message input" [active] [ref=f17e209]:
+            - /placeholder: How can I help you today?
+          - generic [ref=f17e210]:
+            - button "Attach file" [disabled] [ref=f17e212] [cursor=pointer]
+            - generic [ref=f17e215]:
+              - button "Select model" [ref=f17e217] [cursor=pointer]:
+                - generic [ref=f17e218]: cogito-0.9-q4_k_m Medium
+              - button "Stop generating" [ref=f17e257] [cursor=pointer]
+        - generic [ref=f17e234]: Cogito uses your own API models. Responses may vary.
+  - button "Open Next.js Dev Tools" [ref=f17e240] [cursor=pointer]
+  - alert [ref=f17e244]

@@ -1,0 +1,293 @@
+@import "tailwindcss";
+
+/* ===================================================================
+   Cogito — Design System Tokens
+   Derived from docs/DESIGN_SYSTEM.md · Dark theme first (reference match)
+   =================================================================== */
+
+/* ---------- Google Fonts loaded via next/font/google in layout.tsx ---------- */
+
+/* ---------- Dark theme (default — matches reference screenshots) ---------- */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --surface-sidebar:      #191919;    /* Same as chat background */
+  --surface-app:          #191919;    /* Claude's dark background */
+  --surface-raised:       #222222;    /* Raised items on main area (e.g. composer) */
+  --surface-user-bubble:  #2B2A27;    /* Distinct user message bubble */
+  --surface-code-block:   #121212;    /* Code block background */
+  --surface-inline-code:  #2A2926;    /* Inline code pill */
+
+  /* Sidebar item hover/active */
+  --bg-sidebar-hover:     rgba(255, 255, 255, 0.04);
+  --bg-sidebar-active:    rgba(255, 255, 255, 0.08);
+
+  /* Text */
+  --text-primary:    #ECEAE4;
+  --text-secondary:  #A6A49C;
+  --text-on-accent:  #FFFFFF;
+
+  /* Accent */
+  --accent-primary:       #C9603F;
+  --accent-primary-hover: #B5522F;
+
+  /* Borders */
+  --border-subtle: rgba(255, 255, 255, 0.05);
+
+  /* Typography */
+  --font-ui:      var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-body:    var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:    var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: var(--font-lora), "Georgia", "Iowan Old Style", serif;
+
+  /* Type scale */
+  --text-xs:      0.75rem;    /* 12px */
+  --lh-xs:        1rem;       /* 16px */
+  --text-sm:      0.8125rem;  /* 13px */
+  --lh-sm:        1.25rem;    /* 20px */
+  --text-base:    0.9375rem;  /* 15px */
+  --lh-base:      1.5rem;     /* 24px */
+  --text-lg:      1.125rem;   /* 18px */
+  --lh-lg:        1.75rem;    /* 28px */
+  --text-display: 2rem;       /* 32px */
+  --lh-display:   2.5rem;     /* 40px */
+
+  /* Layout */
+  --sidebar-width:       288px;
+  --content-max-width:   740px;
+  --message-gap:         24px;
+  --composer-padding:    16px;
+  --composer-radius:     22px;
+  --bubble-radius:       18px;
+  --code-block-radius:   8px;
+
+  /* Shadows */
+  --shadow-composer: 0 3px 12px rgba(0, 0, 0, 0.25);
+  --shadow-dropdown: 0 4px 16px rgba(0, 0, 0, 0.24);
+}
+
+/* ---------- Light theme ---------- */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --surface-sidebar:      #F0EDE4;    /* Darker warm tan sidebar */
+  --surface-app:          #FAF9F6;    /* Lighter off-white main area */
+  --surface-raised:       #FFFFFF;    /* Pure white raised items */
+  --surface-user-bubble:  #E6E2D6;    /* Putty/tan bubble */
+  --surface-code-block:   #1E1E1C;
+  --surface-inline-code:  #ECE9DF;
+
+  /* Sidebar item hover/active */
+  --bg-sidebar-hover:     rgba(0, 0, 0, 0.04);
+  --bg-sidebar-active:    rgba(0, 0, 0, 0.08);
+
+  --text-primary:    #2E2D2A;
+  --text-secondary:  #6B6A64;
+  --text-on-accent:  #FFFFFF;
+
+  --accent-primary:       #C9603F;
+  --accent-primary-hover: #B5522F;
+
+  --border-subtle: rgba(0, 0, 0, 0.08);
+
+  --shadow-composer: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-dropdown: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+/* ---------- Tailwind v4 theme bridge ---------- */
+@theme inline {
+  --color-surface-app:         var(--surface-app);
+  --color-surface-sidebar:     var(--surface-sidebar);
+  --color-surface-raised:      var(--surface-raised);
+  --color-surface-user-bubble: var(--surface-user-bubble);
+  --color-surface-code-block:  var(--surface-code-block);
+  --color-surface-inline-code: var(--surface-inline-code);
+
+  --color-text-primary:    var(--text-primary);
+  --color-text-secondary:  var(--text-secondary);
+  --color-text-on-accent:  var(--text-on-accent);
+
+  --color-accent-primary:       var(--accent-primary);
+  --color-accent-primary-hover: var(--accent-primary-hover);
+
+  --color-border-subtle: var(--border-subtle);
+
+  --color-bg-sidebar-hover:  var(--bg-sidebar-hover);
+  --color-bg-sidebar-active: var(--bg-sidebar-active);
+
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-mono);
+}
+
+/* ---------- Base reset ---------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  height: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100%;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-app);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+}
+
+/* ---------- Scrollbar styling (Webkit / dark theme) ---------- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* ---------- Selection ---------- */
+::selection {
+  background: rgba(201, 96, 63, 0.3);
+  color: var(--text-primary);
+}
+
+/* ---------- Focus ring ---------- */
+:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* Disable focus ring on textareas / inputs to prevent orange outlines when writing */
+textarea:focus,
+textarea:focus-visible,
+input:focus,
+input:focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+}
+
+/* ---------- Animation utilities ---------- */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 1; }
+}
+
+@keyframes typing-cursor {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out both;
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.2s ease-out both;
+}
+
+/* ---------- Utility classes ---------- */
+.text-xs-ui {
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.text-sm-ui {
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.text-base-ui {
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+}
+
+.text-lg-ui {
+  font-size: var(--text-lg);
+  line-height: var(--lh-lg);
+}
+
+.text-display-ui {
+  font-size: var(--text-display);
+  line-height: var(--lh-display);
+}
+
+/* ---------- Typing indicator ---------- */
+.typing-indicator {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.typing-indicator span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+.typing-indicator span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-indicator span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* ---------- Logo thinking animation ---------- */
+@keyframes logo-thinking {
+  0% {
+    transform: scale(0.9) rotate(0deg);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.1) rotate(180deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.9) rotate(360deg);
+    opacity: 0.7;
+  }
+}
+
+.animate-logo-thinking {
+  animation: logo-thinking 2.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  transform-origin: center;
+}
+
+
