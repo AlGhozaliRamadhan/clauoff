@@ -42,3 +42,10 @@ next-env.d.ts
 
 # Cogito project libraries (RAG) — local only, never commit
 /data
+
+# Scratch / ad-hoc test scripts and throwaway files
+/fix-steps.js
+/rewrite.js
+/scratch_test.js
+/test-yahoo2.js
+/test_curl.html
