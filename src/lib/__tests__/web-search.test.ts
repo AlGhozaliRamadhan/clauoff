@@ -68,3 +68,35 @@ describe("mergeYearBoost", () => {
     expect(merged[0].url).toBe("wiki/2023");
   });
 });
+
+describe("htmlToReadableMarkdown", () => {
+  it("extracts clean markdown and removes scripts/styles/nav", async () => {
+    const { htmlToReadableMarkdown } = await import("../web-search");
+    const rawHtml = `
+      <html>
+        <head><title>Test Page</title><style>.bad { color: red; }</style></head>
+        <body>
+          <nav><a href="/home">Home</a></nav>
+          <main>
+            <h1>Article Title</h1>
+            <p>This is the first paragraph with a <a href="https://example.com">link</a>.</p>
+            <ul>
+              <li>Item 1</li>
+              <li>Item 2</li>
+            </ul>
+            <script>alert("bad");</script>
+          </main>
+          <footer>Footer text</footer>
+        </body>
+      </html>
+    `;
+    const md = htmlToReadableMarkdown(rawHtml);
+    expect(md).toContain("# Article Title");
+    expect(md).toContain("This is the first paragraph with a link.");
+    expect(md).toContain("- Item 1");
+    expect(md).toContain("- Item 2");
+    expect(md).not.toContain("alert");
+    expect(md).not.toContain(".bad");
+    expect(md).not.toContain("Footer text");
+  });
+});

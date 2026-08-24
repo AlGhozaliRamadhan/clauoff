@@ -2,14 +2,12 @@
 
 import React from "react";
 import { CogitoWordmark } from "./CogitoBrand";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   PlusIcon,
   ChatBubbleIcon,
   FolderIcon,
   ArtifactsIcon,
-  CodeIcon,
-  CustomizeIcon,
-  DesignIcon,
   SearchIcon,
   SidebarIcon,
   ChevronUpDownIcon,
@@ -17,6 +15,9 @@ import {
   DownloadIcon,
   SettingsIcon,
   ChevronRightIcon,
+  UserPlusIcon,
+  DatabaseIcon,
+  ShieldCheckIcon,
 } from "./Icons";
 
 interface SidebarProps {
@@ -156,6 +157,7 @@ export function Sidebar({
   onOpenProjects,
   onOpenChats,
 }: SidebarProps) {
+  const { user, openAuthModal, logout } = useAuth();
   const [showAccountMenu, setShowAccountMenu] = React.useState(false);
   const accountMenuRef = React.useRef<HTMLDivElement>(null);
 
@@ -168,6 +170,10 @@ export function Sidebar({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const avatarInitial = (user?.displayName || user?.username || "G").slice(0, 1).toUpperCase();
+  const avatarBg = user?.avatarColor || "var(--text-primary)";
+  const avatarText = user?.avatarColor ? "#FFFFFF" : "var(--surface-sidebar)";
 
   return (
     <>
@@ -239,26 +245,7 @@ export function Sidebar({
             onClick={onOpenProjects}
           />
           <NavItem icon={<ArtifactsIcon size={18} />} label="Artifacts" />
-          <NavItem icon={<CodeIcon size={18} />} label="Code" />
-          <NavItem icon={<CustomizeIcon size={18} />} label="Customize" />
         </nav>
-
-        {/* ── Products section ── */}
-        <div className="px-2 mt-3">
-          <div
-            className="px-3 pb-1"
-            style={{
-              fontFamily: "var(--font-ui)",
-              fontSize: "12px",
-              lineHeight: "16px",
-              color: "var(--text-secondary)",
-              fontWeight: 500,
-            }}
-          >
-            Products
-          </div>
-          <NavItem icon={<DesignIcon size={18} />} label="Design" />
-        </div>
 
         {/* ── Recents section ── */}
         <div className="flex-1 px-2 mt-3 overflow-y-auto min-h-0">
@@ -327,12 +314,55 @@ export function Sidebar({
                 boxShadow: "var(--shadow-dropdown)",
               }}
             >
-              {/* Email / Username */}
-              <div className="px-4 py-1.5 text-xs text-[var(--text-secondary)] opacity-80 font-mono truncate">
-                oza@local
+              {/* Profile details header */}
+              <div className="px-4 py-2 border-b border-[var(--border-subtle)] mb-1">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 shadow-xs"
+                    style={{ background: avatarBg, color: avatarText }}
+                  >
+                    {avatarInitial}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-[var(--text-primary)] truncate">
+                      {user ? user.displayName : "Guest User"}
+                    </div>
+                    <div className="text-[11px] text-[var(--text-secondary)] truncate flex items-center gap-1 font-mono">
+                      {user ? `@${user.username}` : "Not signed in"}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Menu items */}
+              {!user ? (
+                <button
+                  className="flex items-center justify-between w-full px-4 py-2 hover:bg-[rgba(255,255,255,0.04)] cursor-pointer text-left text-sm-ui text-[var(--accent-primary)] font-medium"
+                  onClick={() => {
+                    setShowAccountMenu(false);
+                    openAuthModal("login");
+                  }}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <UserPlusIcon size={16} />
+                    <span>Sign In / Create Account</span>
+                  </div>
+                </button>
+              ) : (
+                <button
+                  className="flex items-center justify-between w-full px-4 py-2 hover:bg-[rgba(255,255,255,0.04)] cursor-pointer text-left text-sm-ui text-[var(--text-primary)]"
+                  onClick={() => {
+                    setShowAccountMenu(false);
+                    openAuthModal("switch");
+                  }}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <UserPlusIcon size={16} className="text-[var(--text-secondary)]" />
+                    <span>Switch Account</span>
+                  </div>
+                </button>
+              )}
+
               <button
                 className="flex items-center justify-between w-full px-4 py-2 hover:bg-[rgba(255,255,255,0.04)] cursor-pointer text-left text-sm-ui text-[var(--text-primary)]"
                 onClick={() => {
@@ -344,66 +374,25 @@ export function Sidebar({
                   <SettingsIcon size={16} className="text-[var(--text-secondary)]" />
                   <span>Settings</span>
                 </div>
-                <span className="text-[11px] text-[var(--text-secondary)] opacity-70">Ctrl+Shift+P</span>
-              </button>
-
-              <button
-                className="flex items-center justify-between w-full px-4 py-2 hover:bg-[rgba(255,255,255,0.04)] cursor-pointer text-left text-sm-ui text-[var(--text-primary)]"
-                onClick={() => setShowAccountMenu(false)}
-              >
-                <div className="flex items-center gap-2.5">
-                  <GlobeIcon size={16} className="text-[var(--text-secondary)]" />
-                  <span>Language</span>
-                </div>
-                <ChevronRightIcon size={12} className="text-[var(--text-secondary)] opacity-70" />
-              </button>
-
-              <button
-                className="flex items-center justify-between w-full px-4 py-2 hover:bg-[rgba(255,255,255,0.04)] cursor-pointer text-left text-sm-ui text-[var(--text-primary)]"
-                onClick={() => setShowAccountMenu(false)}
-              >
-                <div className="flex items-center gap-2.5">
-                  <HelpIcon size={16} className="text-[var(--text-secondary)]" />
-                  <span>Get help</span>
-                </div>
+                <span className="text-[11px] text-[var(--text-secondary)] opacity-70">Ctrl+,</span>
               </button>
 
               <div className="my-1 border-t border-[var(--border-subtle)]" />
 
-              <button
-                className="flex items-center justify-between w-full px-4 py-2 hover:bg-[rgba(255,255,255,0.04)] cursor-pointer text-left text-sm-ui text-[var(--text-primary)]"
-                onClick={() => {
-                  setShowAccountMenu(false);
-                }}
-              >
-                <div className="flex items-center gap-2.5">
-                  <DownloadIcon size={16} className="text-[var(--text-secondary)]" />
-                  <span>Get apps and extensions</span>
-                </div>
-              </button>
-
-              <button
-                className="flex items-center justify-between w-full px-4 py-2 hover:bg-[rgba(255,255,255,0.04)] cursor-pointer text-left text-sm-ui text-[var(--text-primary)]"
-                onClick={() => setShowAccountMenu(false)}
-              >
-                <div className="flex items-center gap-2.5">
-                  <InfoCircleIcon size={16} className="text-[var(--text-secondary)]" />
-                  <span>Learn more</span>
-                </div>
-                <ChevronRightIcon size={12} className="text-[var(--text-secondary)] opacity-70" />
-              </button>
-
-              <div className="my-1 border-t border-[var(--border-subtle)]" />
-
-              <button
-                className="flex items-center justify-between w-full px-4 py-2 hover:bg-[rgba(255,255,255,0.04)] cursor-pointer text-left text-sm-ui text-[var(--text-primary)]"
-                onClick={() => setShowAccountMenu(false)}
-              >
-                <div className="flex items-center gap-2.5">
-                  <LogOutIcon size={16} className="text-[var(--text-secondary)]" />
-                  <span>Log out</span>
-                </div>
-              </button>
+              {user ? (
+                <button
+                  className="flex items-center justify-between w-full px-4 py-2 hover:bg-[rgba(255,255,255,0.04)] cursor-pointer text-left text-sm-ui text-red-400"
+                  onClick={() => {
+                    setShowAccountMenu(false);
+                    logout();
+                  }}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <LogOutIcon size={16} />
+                    <span>Sign Out</span>
+                  </div>
+                </button>
+              ) : null}
             </div>
           )}
 
@@ -411,15 +400,15 @@ export function Sidebar({
             onClick={() => setShowAccountMenu(!showAccountMenu)}
             className="flex items-center gap-2.5 w-full px-4 py-3 cursor-pointer text-left"
           >
-            {/* Avatar circle (contrast-based cream/dark background) */}
+            {/* Avatar circle (contrast-based cream/dark background or custom color) */}
             <div
-              className="w-[32px] h-[32px] rounded-full flex items-center justify-center text-[13px] font-bold flex-shrink-0"
+              className="w-[32px] h-[32px] rounded-full flex items-center justify-center text-[13px] font-bold flex-shrink-0 shadow-sm"
               style={{
-                background: "var(--text-primary)",
-                color: "var(--surface-sidebar)",
+                background: avatarBg,
+                color: avatarText,
               }}
             >
-              U
+              {avatarInitial}
             </div>
             {/* Name and Subtitle */}
             <div className="flex-1 text-left min-w-0 flex flex-col justify-center">
@@ -427,13 +416,13 @@ export function Sidebar({
                 className="truncate font-medium text-xs"
                 style={{ fontSize: "14px", lineHeight: "18px", color: "var(--text-primary)" }}
               >
-                User
+                {user ? user.displayName : "Personal"}
               </div>
               <div
                 className="truncate text-[11px] font-normal"
                 style={{ color: "var(--text-secondary)", lineHeight: "14px" }}
               >
-                Your API
+                {user ? `@${user.username}` : "Free Plan"}
               </div>
             </div>
             {/* Chevron controls */}

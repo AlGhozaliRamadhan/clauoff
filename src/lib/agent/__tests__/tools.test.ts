@@ -43,5 +43,68 @@ describe("tool registry", () => {
     const result = await tool!.execute("nobel prize in physics 2023 youngest winner");
     expect(result.modelContext).toMatch(/MUST NOT invent|Do NOT invent/i);
     expect(result.modelContext).not.toMatch(/answer[^.]*own knowledge/i);
+  }, 15000);
+
+  it("finds and executes cve_explorer for security vulnerability lookups", async () => {
+    const cveTool = findTool("cve_explorer");
+    expect(cveTool).toBeDefined();
+    expect(cveTool?.name).toBe("cve_explorer");
+
+    const result = await cveTool!.execute("CVE-2024-3094");
+    expect(result.modelContext).toContain("CVE-2024-3094");
+    expect(result.modelContext).toMatch(/CVSS|Severity|xz/i);
+    expect(result.status?.label).toContain("CVE");
+  }, 15000);
+
+  describe("parseAnyToolCall", () => {
+    it("parses standard Cogito <action> format", async () => {
+      const { parseAnyToolCall } = await import("../tools");
+      const result = parseAnyToolCall('<action name="search_web">indonesia weather</action>');
+      expect(result).toEqual({ name: "search_web", input: "indonesia weather" });
+    });
+
+    it("parses Qwen XML function format", async () => {
+      const { parseAnyToolCall } = await import("../tools");
+      const result = parseAnyToolCall(
+        `<tool_call>\n<function=search_web>\n<parameter=query>\nindonesia weather\n</parameter>\n</function>\n</tool_call>`,
+      );
+      expect(result).toEqual({ name: "search_web", input: "indonesia weather" });
+    });
+
+    it("parses Qwen / OpenAI JSON format", async () => {
+      const { parseAnyToolCall } = await import("../tools");
+      const result = parseAnyToolCall(
+        `<tool_call>\n{"name":"search_web","arguments":{"query":"indonesia weather"}}\n</tool_call>`,
+      );
+      expect(result).toEqual({ name: "search_web", input: "indonesia weather" });
+    });
+
+    it("parses inline attribute format", async () => {
+      const { parseAnyToolCall } = await import("../tools");
+      const result = parseAnyToolCall(
+        `<tool_call name="search_web">indonesia weather</tool_call>`,
+      );
+      expect(result).toEqual({ name: "search_web", input: "indonesia weather" });
+    });
+
+    it("unwraps query= parameter prefix and quotes from inputs", async () => {
+      const { parseAnyToolCall, cleanToolInput } = await import("../tools");
+      expect(cleanToolInput('query="latest AI news"')).toBe("latest AI news");
+      expect(cleanToolInput('“query=who won nobel prize”')).toBe("who won nobel prize");
+      expect(cleanToolInput('“query=”')).toBe("");
+      expect(cleanToolInput('query=')).toBe("");
+
+      const result = parseAnyToolCall('<action name="search_web">query="who won nobel prize"</action>');
+      expect(result).toEqual({ name: "search_web", input: "who won nobel prize" });
+    });
+
+    it("parses function call and labeled query formats", async () => {
+      const { parseAnyToolCall } = await import("../tools");
+      const fnResult = parseAnyToolCall('search_web("python 3.13 new features")');
+      expect(fnResult).toEqual({ name: "search_web", input: "python 3.13 new features" });
+
+      const labelResult = parseAnyToolCall('Action: search_web\nQuery: tokyo weather');
+      expect(labelResult).toEqual({ name: "search_web", input: "tokyo weather" });
+    });
   });
 });

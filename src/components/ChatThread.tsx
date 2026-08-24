@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState, useCallback } from "react";
 import { MessageBubbleUser } from "./MessageBubbleUser";
 import { MessageAssistant } from "./MessageAssistant";
+import { ChevronDownIcon } from "./Icons";
 import type { SourceCitation } from "@/lib/rag/types";
 
 export interface Message {
@@ -21,29 +22,45 @@ interface ChatThreadProps {
 export function ChatThread({ messages, onRetry }: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const prevMessagesLengthRef = useRef(messages.length);
 
-  // Smart auto-scroll: only scroll if the user is already near the bottom
-  useEffect(() => {
+  const scrollToBottom = useCallback((smooth = true) => {
+    bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+  }, []);
+
+  // Handle user scrolling
+  const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
-    
-    // If the user is within 150px of the bottom, auto-scroll
-    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
-    
-    if (isNearBottom) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+
+    // Check if user is scrolled up away from bottom (more than 120px)
+    const isAwayFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight > 120;
+    setShowScrollBottom(isAwayFromBottom);
+  }, []);
+
+  // Scroll down only when a new user turn or message is added
+  useEffect(() => {
+    if (messages.length > prevMessagesLengthRef.current) {
+      prevMessagesLengthRef.current = messages.length;
+      scrollToBottom(true);
     }
-  }, [messages, messages[messages.length - 1]?.content]);
+  }, [messages.length, scrollToBottom]);
 
   return (
-    <div className="flex-1 overflow-y-auto" ref={scrollContainerRef}>
+    <div
+      className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 max-w-full relative"
+      ref={scrollContainerRef}
+      onScroll={handleScroll}
+    >
       <div
-        className="mx-auto px-4 py-8"
+        className="mx-auto px-4 py-8 min-w-0 max-w-full"
         style={{ maxWidth: "var(--content-max-width)" }}
       >
         {messages.map((msg, index) => {
           const isLastMessage = index === messages.length - 1;
-          
+
           return msg.role === "user" ? (
             <MessageBubbleUser key={msg.id} content={msg.content} />
           ) : (
@@ -58,6 +75,18 @@ export function ChatThread({ messages, onRetry }: ChatThreadProps) {
         })}
         <div ref={bottomRef} />
       </div>
+
+      {/* Floating jump-to-bottom button when user scrolls up */}
+      {showScrollBottom && (
+        <button
+          onClick={() => scrollToBottom(true)}
+          className="fixed bottom-24 right-8 z-30 p-2 rounded-full bg-[var(--surface-raised)] border border-[var(--border-subtle)] shadow-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-hover)] transition-all cursor-pointer animate-fade-in flex items-center justify-center"
+          title="Scroll to bottom"
+          aria-label="Scroll to bottom"
+        >
+          <ChevronDownIcon size={18} />
+        </button>
+      )}
     </div>
   );
 }

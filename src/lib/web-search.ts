@@ -1,14 +1,18 @@
 /**
- * Web search module — server-side only.
- * ADR-0006: opt-in, server-side, privacy-preserving web search.
+ * Universal Multi-Source Web Search & Page Retrieval Module — Server-side only.
+ * ADR-0006: Opt-in, server-side, privacy-preserving web intelligence.
  *
- * Uses a multi-provider strategy for reliable, free, no-API-key searching:
- *  1. DuckDuckGo HTML (primary) — real web search results
- *  2. Wikipedia API (fallback) — reliable knowledge lookups
+ * Blends 7 free, zero-API-key, zero-payment search providers concurrently:
+ *  1. Bing Search (General Web) — real web index with base64 decoded direct URLs
+ *  2. Google News RSS (News & Current Affairs) — fresh breaking news and articles
+ *  3. arXiv API (Science & Academic) — research papers, AI breakthroughs, math & CS
+ *  4. Hacker News / Algolia API (Tech & Discussions) — developer insights, tutorials
+ *  5. GitHub Search API (Code & Repositories) — open source libraries & frameworks
+ *  6. Wikipedia API (Encyclopedia) — deep factual & historical definitions
+ *  7. DuckDuckGo Instant Answers (Quick Facts) — instant topic summaries
  *
- * All requests go through Next.js server-side route handlers.
- * No API keys required. No telemetry. No outbound calls beyond the
- * search endpoints themselves.
+ * Plus:
+ *  8. Web Page Content Fetcher (fetchWebPage) — deep markdown text extraction from any URL
  */
 
 export interface SearchResult {
@@ -18,159 +22,247 @@ export interface SearchResult {
   source?: string;
 }
 
-/* ─── DuckDuckGo HTML scraper ─────────────────────────────────────── */
+const BROWSER_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
-/**
- * Scrape DuckDuckGo's static HTML endpoint for real web search results.
- * This endpoint is specifically designed for non-JS clients and returns
- * server-rendered HTML that we can parse without a headless browser.
- */
-async function duckDuckGoSearch(
-  query: string,
-  maxResults: number,
-): Promise<SearchResult[]> {
-  const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+/* ─── 1. Bing Web Search (General Web) ─────────────────────────────── */
 
+function decodeBingUrl(href: string): string {
+  const unescaped = href.replace(/&amp;/g, "&");
+  const match = unescaped.match(/[?&]u=a1([^&]+)/);
+  if (match) {
+    try {
+      let b64 = match[1].replace(/-/g, "+").replace(/_/g, "/");
+      while (b64.length % 4) b64 += "=";
+      return Buffer.from(b64, "base64").toString("utf-8");
+    } catch {
+      return unescaped;
+    }
+  }
+  return unescaped;
+}
+
+async function bingSearch(query: string, limit: number): Promise<SearchResult[]> {
+  const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=en&cc=US&ensearch=1`;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
+  const timeout = setTimeout(() => controller.abort(), 5_000);
 
   try {
     const response = await fetch(url, {
       method: "GET",
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "User-Agent": BROWSER_USER_AGENT,
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
       },
       signal: controller.signal,
     });
-
-    if (!response.ok) {
-      throw new Error(`DuckDuckGo returned status ${response.status}`);
-    }
-
+    if (!response.ok) return [];
     const html = await response.text();
-    return parseDuckDuckGoHTML(html, maxResults);
+    const results: SearchResult[] = [];
+    const algoBlocks = html.match(/<li[^>]*class="[^"]*b_algo[^"]*"[^>]*>([\s\S]*?)<\/li>/gi) || [];
+
+    for (const block of algoBlocks) {
+      const titleMatch = block.match(/<h2[^>]*>\s*<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/i);
+      const snippetMatch =
+        block.match(/<p[^>]*>([\s\S]*?)<\/p>/i) ||
+        block.match(/<div[^>]*class="[^"]*b_caption[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+
+      if (titleMatch) {
+        const rawHref = titleMatch[1];
+        const directUrl = decodeBingUrl(rawHref);
+        const title = stripHtml(titleMatch[2]);
+        const snippet = snippetMatch ? stripHtml(snippetMatch[1]) : "";
+        if (directUrl && title && !directUrl.startsWith("/")) {
+          results.push({ title, url: directUrl, snippet, source: "Bing" });
+          if (results.length >= limit) break;
+        }
+      }
+    }
+    return results;
+  } catch {
+    return [];
   } finally {
     clearTimeout(timeout);
   }
 }
 
-/**
- * Parse DuckDuckGo static HTML search results.
- * The HTML structure uses `.result` containers with:
- *   - `.result__a` for the title link (href + text)
- *   - `.result__snippet` for the description
- *   - `.result__url` for the display URL
- */
-function parseDuckDuckGoHTML(
-  html: string,
-  maxResults: number,
-): SearchResult[] {
-  const results: SearchResult[] = [];
+/* ─── 2. Google News RSS (News & Current Affairs) ──────────────────── */
 
-  // Match individual result blocks. DuckDuckGo wraps each result in a
-  // div with class "result results_links results_links_deep web-result"
-  // or similar. We look for the result__a (title link) and result__snippet.
-  const resultBlockRegex =
-    /<div[^>]*class="[^"]*result[^"]*"[^>]*>([\s\S]*?)<\/div>\s*(?=<div[^>]*class="[^"]*result|$)/gi;
-
-  // Simpler approach: find all title links and their sibling snippets
-  // by looking for the known class patterns.
-  const titleLinkRegex =
-    /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
-  const snippetRegex =
-    /<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
-  const urlRegex =
-    /<a[^>]*class="[^"]*result__url[^"]*"[^>]*[^>]*>([\s\S]*?)<\/a>/gi;
-
-  // Collect all title links
-  const titles: { href: string; text: string }[] = [];
-  let match;
-  while ((match = titleLinkRegex.exec(html)) !== null) {
-    let href = match[1];
-    // DuckDuckGo wraps URLs in a redirect: //duckduckgo.com/l/?uddg=ENCODED_URL
-    if (href.includes("uddg=")) {
-      const uddg = href.match(/uddg=([^&]*)/);
-      if (uddg) {
-        try {
-          href = decodeURIComponent(uddg[1]);
-        } catch {
-          // Keep original if decoding fails
-        }
-      }
-    }
-    titles.push({
-      href,
-      text: stripHtml(match[2]),
-    });
-  }
-
-  // Collect all snippets
-  const snippets: string[] = [];
-  while ((match = snippetRegex.exec(html)) !== null) {
-    snippets.push(stripHtml(match[1]));
-  }
-
-  // Build results
-  for (let i = 0; i < Math.min(titles.length, maxResults); i++) {
-    const title = titles[i];
-    if (!title.text.trim() || !title.href.trim()) continue;
-    // Skip DuckDuckGo internal links
-    if (
-      title.href.startsWith("/") &&
-      !title.href.startsWith("//")
-    )
-      continue;
-
-    results.push({
-      title: title.text,
-      url: title.href.startsWith("//")
-        ? `https:${title.href}`
-        : title.href,
-      snippet: snippets[i] || "",
-      source: "DuckDuckGo",
-    });
-  }
-
-  return results;
-}
-
-/* ─── Wikipedia API (fallback) ────────────────────────────────────── */
-
-/**
- * Search Wikipedia for knowledge-focused results.
- * Reliable, fast, and always available — good fallback when DDG fails.
- */
-async function wikipediaSearch(
-  query: string,
-  maxResults: number,
-): Promise<SearchResult[]> {
-  const encodedQuery = encodeURIComponent(query);
-  const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodedQuery}&utf8=&format=json&srlimit=${maxResults}`;
-
+async function googleNewsSearch(query: string, limit: number): Promise<SearchResult[]> {
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
+  const timeout = setTimeout(() => controller.abort(), 4_500);
 
   try {
     const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        "User-Agent": "CogitoSearch/1.0 (local-ai-chat-app)",
-      },
+      headers: { "User-Agent": BROWSER_USER_AGENT },
       signal: controller.signal,
     });
+    if (!response.ok) return [];
+    const xml = await response.text();
+    const results: SearchResult[] = [];
+    const items = xml.match(/<item>([\s\S]*?)<\/item>/gi) || [];
 
-    if (!response.ok) {
-      throw new Error(`Wikipedia API returned status ${response.status}`);
+    for (const item of items) {
+      const titleMatch = item.match(/<title>([\s\S]*?)<\/title>/i);
+      const linkMatch = item.match(/<link>([\s\S]*?)<\/link>/i);
+      const descMatch = item.match(/<description>([\s\S]*?)<\/description>/i);
+      const pubDateMatch = item.match(/<pubDate>([\s\S]*?)<\/pubDate>/i);
+
+      if (titleMatch && linkMatch) {
+        const title = stripHtml(titleMatch[1]);
+        const link = linkMatch[1].trim();
+        const desc = descMatch ? stripHtml(descMatch[1]) : "";
+        const pubDate = pubDateMatch ? pubDateMatch[1].trim() : "";
+        if (title && link) {
+          results.push({
+            title,
+            url: link,
+            snippet: pubDate ? `[Published: ${pubDate}] ${desc}` : desc,
+            source: "Google News",
+          });
+          if (results.length >= limit) break;
+        }
+      }
     }
+    return results;
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
+/* ─── 3. arXiv Scientific Papers API ──────────────────────────────── */
+
+async function arxivSearch(query: string, limit: number): Promise<SearchResult[]> {
+  const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(query)}&start=0&max_results=${limit}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4_500);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return [];
+    const xml = await response.text();
+    const results: SearchResult[] = [];
+    const entries = xml.match(/<entry>([\s\S]*?)<\/entry>/gi) || [];
+
+    for (const entry of entries) {
+      const titleMatch = entry.match(/<title>([\s\S]*?)<\/title>/i);
+      const idMatch = entry.match(/<id>([\s\S]*?)<\/id>/i);
+      const summaryMatch = entry.match(/<summary>([\s\S]*?)<\/summary>/i);
+
+      if (titleMatch && idMatch) {
+        const title = stripHtml(titleMatch[1]).replace(/\s+/g, " ");
+        const url = idMatch[1].trim();
+        const summary = summaryMatch ? stripHtml(summaryMatch[1]).replace(/\s+/g, " ") : "";
+        results.push({
+          title: `[Paper] ${title}`,
+          url,
+          snippet: summary.length > 400 ? `${summary.slice(0, 400)}…` : summary,
+          source: "arXiv",
+        });
+        if (results.length >= limit) break;
+      }
+    }
+    return results;
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/* ─── 4. Hacker News / Algolia API (Tech & Discussions) ───────────── */
+
+async function hackerNewsSearch(query: string, limit: number): Promise<SearchResult[]> {
+  const url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&hitsPerPage=${limit}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4_000);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return [];
     const json = await response.json();
     const results: SearchResult[] = [];
 
-    if (json.query && json.query.search) {
+    for (const hit of json.hits || []) {
+      if (hit.title) {
+        const url = hit.url || `https://news.ycombinator.com/item?id=${hit.objectID}`;
+        const score = hit.points != null ? `${hit.points} points` : "";
+        const comments = hit.num_comments != null ? `${hit.num_comments} comments` : "";
+        const stats = [score, comments].filter(Boolean).join(", ");
+        results.push({
+          title: hit.title,
+          url,
+          snippet: stats ? `HN Discussion (${stats})` : "Hacker News Article",
+          source: "HackerNews",
+        });
+        if (results.length >= limit) break;
+      }
+    }
+    return results;
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/* ─── 5. GitHub Search API (Code & Repositories) ───────────────────── */
+
+async function githubSearch(query: string, limit: number): Promise<SearchResult[]> {
+  const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&per_page=${limit}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4_000);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Cogito-App/1.0",
+        Accept: "application/vnd.github.v3+json",
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok) return [];
+    const json = await response.json();
+    const results: SearchResult[] = [];
+
+    for (const item of json.items || []) {
+      results.push({
+        title: `${item.full_name} (${item.stargazers_count} ★)`,
+        url: item.html_url,
+        snippet: item.description || "GitHub Repository",
+        source: "GitHub",
+      });
+      if (results.length >= limit) break;
+    }
+    return results;
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/* ─── 6. Wikipedia API (Encyclopedia & Concepts) ───────────────────── */
+
+async function wikipediaSearch(query: string, limit: number): Promise<SearchResult[]> {
+  const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&utf8=&format=json&srlimit=${limit}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4_000);
+
+  try {
+    const response = await fetch(url, {
+      headers: { "User-Agent": "CogitoSearch/1.0 (local-ai-chat-app)" },
+      signal: controller.signal,
+    });
+    if (!response.ok) return [];
+    const json = await response.json();
+    const results: SearchResult[] = [];
+
+    if (json.query?.search) {
       for (const item of json.query.search) {
         results.push({
           title: item.title,
@@ -178,44 +270,33 @@ async function wikipediaSearch(
           snippet: stripHtml(item.snippet),
           source: "Wikipedia",
         });
+        if (results.length >= limit) break;
       }
     }
-
     return results;
+  } catch {
+    return [];
   } finally {
     clearTimeout(timeout);
   }
 }
 
-/* ─── DuckDuckGo Instant Answer API (supplementary) ───────────────── */
+/* ─── 7. DuckDuckGo Instant Answers ───────────────────────────────── */
 
-/**
- * Get instant answer / abstract from DuckDuckGo's Instant Answer API.
- * Great for quick facts and definitions. No API key required.
- */
-async function duckDuckGoInstantAnswer(
-  query: string,
-): Promise<SearchResult[]> {
+async function duckDuckGoInstantAnswer(query: string): Promise<SearchResult[]> {
   const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
-
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 6_000);
+  const timeout = setTimeout(() => controller.abort(), 3_000);
 
   try {
     const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        "User-Agent": "CogitoSearch/1.0 (local-ai-chat-app)",
-      },
+      headers: { "User-Agent": "CogitoSearch/1.0 (local-ai-chat-app)" },
       signal: controller.signal,
     });
-
     if (!response.ok) return [];
-
     const json = await response.json();
     const results: SearchResult[] = [];
 
-    // Abstract (main topic)
     if (json.AbstractText && json.AbstractURL) {
       results.push({
         title: json.Heading || query,
@@ -224,120 +305,177 @@ async function duckDuckGoInstantAnswer(
         source: "DuckDuckGo Instant",
       });
     }
-
-    // Related topics
-    if (json.RelatedTopics) {
-      for (const topic of json.RelatedTopics.slice(0, 3)) {
-        if (topic.Text && topic.FirstURL) {
-          results.push({
-            title:
-              topic.Text.split(" - ")[0]?.substring(0, 100) || topic.Text.substring(0, 100),
-            url: topic.FirstURL,
-            snippet: topic.Text.substring(0, 250),
-            source: "DuckDuckGo Instant",
-          });
-        }
-      }
-    }
-
     return results;
+  } catch {
+    return [];
   } finally {
     clearTimeout(timeout);
   }
 }
 
-/* ─── Main search function (multi-provider) ───────────────────────── */
+/* ─── 8. Web Page Content Fetcher (Read Any Full URL) ─────────────── */
+
+export async function fetchWebPage(
+  targetUrl: string,
+  maxChars: number = 4000,
+): Promise<{ title: string; url: string; content: string }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: "GET",
+      headers: {
+        "User-Agent": BROWSER_USER_AGENT,
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch page (HTTP ${response.status})`);
+    }
+
+    const html = await response.text();
+    const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const title = titleMatch ? stripHtml(titleMatch[1]) : targetUrl;
+
+    const readableText = htmlToReadableMarkdown(html);
+    const content =
+      readableText.length > maxChars
+        ? readableText.slice(0, maxChars) + "\n\n...(content truncated)"
+        : readableText;
+
+    return {
+      title,
+      url: targetUrl,
+      content: content || "(no readable content found on this page)",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export function htmlToReadableMarkdown(html: string): string {
+  const mainMatch =
+    html.match(/<main[^>]*>([\s\S]*?)<\/main>/i) ||
+    html.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
+    html.match(/<div[^>]*id="mw-content-text"[^>]*>([\s\S]*?)<\/div>\s*<div[^>]*id="catlinks"/i) ||
+    html.match(/<div[^>]*class="[^"]*(?:article-content|post-content|main-content|entry-content)[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+    html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+
+  const targetHtml = mainMatch ? mainMatch[1] : html;
+
+  return targetHtml
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
+    .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, "")
+    .replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, "")
+    .replace(/<header\b[^<]*(?:(?!<\/header>)<[^<]*)*<\/header>/gi, "")
+    .replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, "")
+    .replace(/<aside\b[^<]*(?:(?!<\/aside>)<[^<]*)*<\/aside>/gi, "")
+    .replace(/<table\b[^>]*class="[^"]*infobox[^"]*"[\s\S]*?<\/table>/gi, "")
+    .replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, "\n# $1\n")
+    .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, "\n## $1\n")
+    .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, "\n### $1\n")
+    .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, "\n- $1")
+    .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, "\n$1\n")
+    .replace(/<pre[^>]*><code>([\s\S]*?)<\/code><\/pre>/gi, "\n```\n$1\n```\n")
+    .replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, "`$1`")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&#0*39;/g, "'")
+    .replace(/&#0*34;/g, '"')
+    .replace(/&quot;/gi, '"')
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/* ─── Universal Blended Search ─────────────────────────────────────── */
 
 /**
- * Perform a web search using multiple providers for reliability.
- * Strategy:
- *   1. Try DuckDuckGo HTML (real web results)
- *   2. If that fails or returns nothing, try Wikipedia
- *   3. Supplement with DuckDuckGo Instant Answers for quick facts
- *
- * Never throws — always returns results (possibly empty).
+ * Perform a blended multi-source search across Bing, Google News, arXiv,
+ * Hacker News, GitHub, Wikipedia, and DuckDuckGo.
  */
 export async function webSearch(
   query: string,
-  maxResults: number = 5,
+  maxResults: number = 16,
 ): Promise<SearchResult[]> {
   if (!query.trim()) return [];
 
-  let results: SearchResult[] = [];
-  const errors: string[] = [];
+  const perCategory = Math.max(3, Math.ceil(maxResults / 4));
 
-  // ── Primary: DuckDuckGo HTML search ──
-  try {
-    results = await duckDuckGoSearch(query, maxResults);
-  } catch (err) {
-    const msg =
-      err instanceof Error ? err.message : "DuckDuckGo search failed";
-    errors.push(msg);
-  }
+  // Concurrently query all free, zero-key search providers
+  const [bingRes, newsRes, arxivRes, hnRes, githubRes, wikiRes, ddgInstantRes] =
+    await Promise.allSettled([
+      bingSearch(query, Math.max(8, Math.ceil(maxResults / 2))),
+      googleNewsSearch(query, perCategory),
+      arxivSearch(query, perCategory),
+      hackerNewsSearch(query, perCategory),
+      githubSearch(query, perCategory),
+      wikipediaSearch(query, perCategory),
+      duckDuckGoInstantAnswer(query),
+    ]);
 
-  // ── Fallback: Wikipedia (if DDG returned nothing) ──
-  if (results.length === 0) {
-    try {
-      results = await wikipediaSearch(query, maxResults);
-    } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : "Wikipedia search failed";
-      errors.push(msg);
+  const buckets: SearchResult[][] = [
+    bingRes.status === "fulfilled" ? bingRes.value : [],
+    newsRes.status === "fulfilled" ? newsRes.value : [],
+    arxivRes.status === "fulfilled" ? arxivRes.value : [],
+    hnRes.status === "fulfilled" ? hnRes.value : [],
+    githubRes.status === "fulfilled" ? githubRes.value : [],
+    wikiRes.status === "fulfilled" ? wikiRes.value : [],
+    ddgInstantRes.status === "fulfilled" ? ddgInstantRes.value : [],
+  ];
+
+  // Interleave results across providers for rich diversity
+  const results: SearchResult[] = [];
+  const seenUrls = new Set<string>();
+
+  let hasMore = true;
+  let round = 0;
+
+  while (hasMore && results.length < maxResults) {
+    hasMore = false;
+    for (const bucket of buckets) {
+      if (round < bucket.length) {
+        hasMore = true;
+        const item = bucket[round];
+        if (item.url && !seenUrls.has(item.url)) {
+          seenUrls.add(item.url);
+          results.push(item);
+          if (results.length >= maxResults) break;
+        }
+      }
     }
+    round++;
   }
 
-  // ── Year-specific boost ──
-  // DuckDuckGo's HTML endpoint frequently returns only generic list pages
-  // for "X 2023" style queries (List of Nobel laureates, controversies,
-  // women laureates) — never the year's actual article, which is exactly
-  // the page the model needs. That generic junk led the model to conclude
-  // "the 2023 prize doesn't exist" — absence of evidence mistaken for
-  // evidence of absence. For queries containing a 4-digit year, run a
-  // second, narrower Wikipedia search; the year-specific page (e.g.
-  // "2023 Nobel Prize in Physics") ranks top when it exists, and we merge
-  // those results ahead of the generic DDG junk.
+  // Year-specific Wikipedia boost
   const yearQuery = yearSpecificQuery(query);
   if (yearQuery && results.length > 0) {
     try {
-      const yearSpecific = await wikipediaSearch(yearQuery, 3);
-      results = mergeYearBoost(yearSpecific, results, maxResults);
+      const yearSpecific = await wikipediaSearch(yearQuery, 2);
+      return mergeYearBoost(yearSpecific, results, maxResults);
     } catch {
-      // Non-critical — keep DDG results as-is
+      // Non-critical
     }
   }
 
-  // ── Supplement: DDG Instant Answers (non-blocking, adds context) ──
-  if (results.length < maxResults) {
-    try {
-      const instantResults = await duckDuckGoInstantAnswer(query);
-      // Only add instant results that don't duplicate existing URLs
-      const existingUrls = new Set(results.map((r) => r.url));
-      for (const ir of instantResults) {
-        if (!existingUrls.has(ir.url) && results.length < maxResults) {
-          results.push(ir);
-          existingUrls.add(ir.url);
-        }
-      }
-    } catch {
-      // Non-critical — silently ignore
-    }
-  }
-
-  // If everything failed, return empty (the tool handler in tools.ts
-  // will tell the model the search found nothing — and that it must NOT
-  // invent facts to fill the gap)
-  return results;
+  return results.slice(0, maxResults);
 }
 
 /* ─── Utilities ───────────────────────────────────────────────────── */
 
-/** Strip HTML tags and decode common entities */
 function stripHtml(html: string): string {
   return html
     .replace(/<[^>]*>/g, "")
-    // Decode the full common set — &#039; / &#39; / &quot; / &#34; / &apos; /
-    // &#x27; / &#x22; all end up as real quotes, not literal entity text
-    // that can confuse a local model or a strict proxy body scanner.
     .replace(/&#0*39;/g, "'")
     .replace(/&#0*34;/g, '"')
     .replace(/&#x27;/gi, "'")
@@ -352,15 +490,9 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-/**
- * Extract the year-specific query from a query containing a 4-digit year.
- * "nobel prize physics 2023 laureates" → "2023 nobel prize physics laureates"
- * (year moved to front, original year removed). Exported for tests.
- */
 export function yearSpecificQuery(query: string): string | null {
   const year = query.match(/\b(19|20)\d{2}\b/);
   if (!year) return null;
-  // Replace year with a marker, then collapse double spaces from the gap
   const rest = query
     .replace(/\b(19|20)\d{2}\b/g, " ")
     .replace(/\s+/g, " ")
@@ -368,10 +500,6 @@ export function yearSpecificQuery(query: string): string | null {
   return `${year[0]} ${rest}`.trim();
 }
 
-/**
- * Merge year-specific Wikipedia results ahead of the generic DDG results,
- * without duplicates. Exported for tests.
- */
 export function mergeYearBoost(
   yearResults: SearchResult[],
   existing: SearchResult[],
@@ -382,28 +510,20 @@ export function mergeYearBoost(
   return [...boosted, ...existing].slice(0, maxResults + boosted.length);
 }
 
-/**
- * Format search results into a context string for injection into the
- * LLM conversation as a system message.
- */
 export function formatSearchResultsForLLM(results: SearchResult[]): string {
   if (results.length === 0) {
     return "Web search returned no results. Do NOT invent or guess facts to answer. If the user's question asks for factual information, say clearly that you couldn't verify it. If the question is creative, opinion-based, or about the conversation itself, answer normally.";
   }
 
-  // Cap each snippet so the accumulated continuation payload stays lean —
-  // a 5-result search at ~2000 chars each would otherwise push the second
-  // request well past what a small local model (and a picky tunnel proxy)
-  // likes to swallow.
   const SNIPPET_CAP = 500;
   const formatted = results
     .map(
       (r, i) =>
-        `[${i + 1}] ${r.title}${r.source ? ` (via ${r.source})` : ""}\n    URL: ${r.url}\n    ${
+        `[${i + 1}] [${r.source || "Web"}] ${r.title}\n    URL: ${r.url}\n    ${
           r.snippet.length > SNIPPET_CAP ? `${r.snippet.slice(0, SNIPPET_CAP)}…` : r.snippet
         }`,
     )
     .join("\n\n");
 
-  return `Web Search Results:\n\n${formatted}\n\nUse these search results to inform your answer. Cite sources by referencing their URLs when relevant. You MUST NOT invent facts that are not present in the search results — no fabricated names, dates, numbers, or affiliations. If the search results don't contain the information the user asked for, say so explicitly and do not answer from memory. If the user's question is creative, opinion-based, or about the conversation itself, you may answer normally without searching.`;
+  return `Web Search Results (Blended across Web, News, Code & Academic Sources):\n\n${formatted}\n\nUse these search results to inform your answer. Cite sources by referencing their URLs and names when relevant. You MUST NOT invent facts that are not present in the search results — no fabricated names, dates, numbers, or affiliations. If you need to read the full contents of any URL above in depth, use <action name="fetch_web_page">url</action>. If the search results don't contain the information the user asked for, say so explicitly.`;
 }

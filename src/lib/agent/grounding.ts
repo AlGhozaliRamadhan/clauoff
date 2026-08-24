@@ -53,6 +53,25 @@ function extractFactTokens(text: string): string[] {
   return [...tokens];
 }
 
+/**
+ * Strip code from a reply before grounding checks. Code is full of
+ * tokens that look like proper nouns to a naive regex ("PATH", "SHELL",
+ * function names) but are not factual claims a user could verify
+ * against snippets. Scanning it produces false flags, and the rendered
+ * warning can also echo the code block back to the user, causing the
+ * reply to appear duplicated. We remove fenced code blocks, inline
+ * code, and <artifact> bodies before token extraction.
+ */
+function stripCodeFromReply(text: string): string {
+  return text
+    // Fenced code blocks (```...```) — including the newlines around them
+    .replace(/```[\s\S]*?```/g, " ")
+    // Inline code (`...`)
+    .replace(/`[^`\n]*`/g, " ")
+    // <artifact> bodies
+    .replace(/<\s*(?:antA|a)rtifact\b[^>]*>[\s\S]*?<\/\s*(?:antA|a)rtifact\s*>/gi, " ");
+}
+
 /** Case-insensitive containment for a token's core (word + optional punctuation). */
 function tokenInSnippets(token: string, snippetText: string): boolean {
   const core = token.replace(/[.,;:!?'’"()[\]]+$/g, "");
@@ -70,7 +89,13 @@ export function verifyGrounding(reply: string, snippets: string[]): VerifiedFact
   const allSnippets = snippets.join("\n");
   const flagged: VerifiedFact[] = [];
 
-  const sentences = reply.split(SENTENCE_SPLIT);
+  // Strip fenced code / inline code / artifact bodies before scanning,
+  // so a code block in the reply doesn't get flagged for code-internal
+  // tokens ("PATH", "SHELL", function names) and so the rendered warning
+  // doesn't echo the code back to the user.
+  const scanText = stripCodeFromReply(reply);
+
+  const sentences = scanText.split(SENTENCE_SPLIT);
   for (const raw of sentences) {
     const sentence = raw.trim();
     if (!sentence) continue;
@@ -93,12 +118,25 @@ export function verifyGrounding(reply: string, snippets: string[]): VerifiedFact
 /**
  * Render the verification warning. Placed after the model's reply so the
  * user sees the honest caveat immediately below the claims it applies to.
+ *
+ * Each flagged sentence is truncated to MAX_FLAGGED_SENTENCE_LEN chars so a
+ * sentence that bled into a code block (or any unusually long sentence)
+ * can't be echoed back at full length — that was duplicating the reply
+ * visually for the user.
  */
+const MAX_FLAGGED_SENTENCE_LEN = 200;
+
 export function renderGroundingWarning(flagged: VerifiedFact[]): string {
   if (flagged.length === 0) return "";
   const items = flagged
     .slice(0, 3)
-    .map((f) => `- “${f.sentence}”`)
+    .map((f) => {
+      const s =
+        f.sentence.length > MAX_FLAGGED_SENTENCE_LEN
+          ? `${f.sentence.slice(0, MAX_FLAGGED_SENTENCE_LEN).trimEnd()}…`
+          : f.sentence;
+      return `- “${s}”`;
+    })
     .join("\n");
-  return `\n\n---\n\n⚠️ **Couldn't verify this against the search results:**\n${items}\n\n*Some of the above may be unverified — treat it with caution.*`;
+  return `\n\n---\n\n**Note: Couldn't verify this against the search results:**\n${items}\n\n*Some of the above may be unverified — treat it with caution.*`;
 }

@@ -95,4 +95,35 @@ describe("renderGroundingWarning", () => {
     expect(out).toContain("Third invented claim.");
     expect(out).not.toContain("Fourth invented claim.");
   });
+
+  it("truncates very long flagged sentences so the warning does not echo huge blocks back to the user", () => {
+    const hugeSentence = "x".repeat(5000);
+    const out = renderGroundingWarning([{ sentence: hugeSentence, missing: ["x"] }]);
+    expect(out.length).toBeLessThan(5000);
+    expect(out).toContain("…");
+  });
+});
+
+describe("verifyGrounding strips code", () => {
+  it("does not flag code-block tokens that look like proper nouns", () => {
+    // PATH and function names inside a fenced code block should NOT
+    // trigger grounding flags — those are code, not factual claims.
+    const reply =
+      "CVE-2024-3094 affects xz 5.6.0 and 5.6.1.\n\n" +
+      "```python\nimport os\nfor d in os.environ.get('PATH', ''):\n    print(d)\n```";
+    const snippets = ["CVE-2024-3094 was discovered in xz 5.6.0 and 5.6.1."];
+    const flagged = verifyGrounding(reply, snippets);
+    expect(flagged).toEqual([]);
+  });
+
+  it("still flags prose that contains unsupported claims even when a code block is present", () => {
+    const reply =
+      "CVE-2024-3094 affects xz 5.6.0 and 5.6.1.\n\n" +
+      "Invented claim: the bug was introduced by Jane Doe at RandomCorp in 2022.\n\n" +
+      "```python\nprint('PATH')\n```";
+    const snippets = ["CVE-2024-3094 was discovered in xz 5.6.0 and 5.6.1."];
+    const flagged = verifyGrounding(reply, snippets);
+    expect(flagged.length).toBe(1);
+    expect(flagged[0].sentence).toContain("RandomCorp");
+  });
 });

@@ -1,93 +1,168 @@
-// Guidance shared across effort levels. Two principles shaped this:
+// Guidance shared across effort levels.
 //
-//   1. Show, don't tell. Small local models follow examples much better than
-//      abstract rules, so we keep one short example per level rather than
-//      long paragraphs of "MUST" / "NEVER". The model can imitate the shape.
-//
-//   2. Don't be loud. Heavily coercive phrasing ("[SYSTEM DIRECTIVE]: you
-//      MUST...") reads as artificial and small models either loop on the
-//      rules or stop answering entirely. Plain, friendly guidance reads
-//      better and produces more natural thoughts.
-//
-// Note on format: the <think> tag is required so the UI can fold the model's
-// reasoning into the collapsible "Thought process" block. Without it the
-// monologue bleeds into the visible answer.
-//
-// IMPORTANT: small local models frequently stop right after </think> and
-// ship a bare thought with no visible reply. The format rule below puts
-// that failure mode front-and-center.
+// Supports both:
+//   1. Native reasoning models (Qwen, DeepSeek, etc.) where reasoning tokens / <think>
+//      are emitted natively or prefilled by the chat template.
+//   2. Standard models (Llama, Mistral, etc.) where structured <think> guidance
+//      helps guide the model to emit reasoning.
 
-const BASE_FORMAT_GUIDANCE = `Format for every reply — read this carefully:
+import { detectModelVariant } from '@/lib/model-variants';
+
+const REPLY_LENGTH_RULE = `
+Critical rule for the visible reply:
+- The reply must be a COMPLETE answer. Never write a placeholder like
+  "Here is the answer — ..." or end the reply with "…" or "etc."
+- The reply must contain the actual content the user asked for: the full
+  code, the full explanation, the full list — not a stub of it.
+- Minimum reply length: at least 2 paragraphs of prose, OR the full code
+  block / artifact the user asked for, whichever applies.
+- If the user asked for code, the code goes in the visible reply (inside
+  a code block or <artifact> tag), not summarized in prose.`;
+
+const BASE_FORMAT_GUIDANCE = `Format for every reply:
 
 A reply has two parts:
-  1. A thought inside <think>…</think>. The user does NOT see this.
+  1. A thought inside <think>…</think>.
   2. The visible reply, written as plain text AFTER </think>.
 
 Both parts are required. A reply that ends at </think> with nothing after
-is broken — the user would see an empty message. This is the most common
-mistake, so do not do it.
+is incomplete. Always write your final visible answer after closing the thought.${REPLY_LENGTH_RULE}
 
-To respond to "hi":
-<think>The user greeted me; a short warm reply is right.</think>
-Hello! What can I help you with today?
-
-To respond to a real question:
+To respond to a question:
 <think>
-Let me consider what is being asked and what I know. There is more than
-one way to look at this, and the better fit seems clear. I'll answer
-directly and keep the reasoning brief.
+The user is asking a direct factual question. One clear answer fits, so I
+will state it plainly and then briefly justify it. Keeping the thought
+short so I leave room for a full reply.
 </think>
-Here is the answer — ...`;
+The capital of France is Paris. It has been the capital since the 10th
+century under the Capetian dynasty and remains the political and cultural
+center of the country today, home to the French government and many of
+the nation's most visited landmarks.`;
 
 const SHORT_EXAMPLE = `
-To respond to a real question:
-<think>Three plausible interpretations, the second fits best, so I'll answer that. The answer is straightforward.</think>
-Here is the answer you're after — ...`;
+To respond to a question:
+<think>One direct answer fits. I'll state it and move on. Keeping the thought brief so the reply has room.</think>
+The answer is 42. This comes from the constant defined at the top of the
+module, and it is what the test suite asserts against in
+\`tests/test_constant.py\`. The value is exported as \`ANSWER\` and is
+the only constant the rest of the package depends on.`;
 
 const LONG_EXAMPLE = `
-To respond to a real question:
+To respond to a question:
 <think>
-The user is asking about a specific event. Let me work through it.
-What are the core entities involved? There might be multiple interpretations, but the most common one is X.
-Wait, let me double check my assumption about X. Actually, Y is more accurate because of recent developments.
-Okay, I have verified the facts. Now I will structure the final visible response: start with a direct answer, then provide the supporting details.
+The user is asking how to read a CSV file in Python and sum one column.
+Straightforward — I'll show the standard library approach and note the
+pandas alternative. The reply needs a complete code sample plus a short
+explanation, not just a description of the code.
 </think>
-Here is the detailed answer you're looking for — ...`;
+The simplest way is with the \`csv\` module from the standard library, no
+extra dependencies needed:
+
+\`\`\`python
+import csv
+
+total = 0
+with open("sales.csv", newline="") as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        total += int(row["amount"])
+
+print(total)
+\`\`\`
+
+This reads \`sales.csv\` as a dictionary per row (so column names work
+regardless of order), parses the \`amount\` column as an integer, and
+accumulates the sum. If you already use \`pandas\`, the same thing is
+\`pd.read_csv("sales.csv")["amount"].sum()\`, which is shorter but pulls
+in a heavier dependency.`;
 
 const MAX_EXAMPLE = `
-To respond to a real question:
+To respond to a question:
 <think>
-The user is asking for a complex analysis. Let me think this through.
-
-What exactly is being asked? If there is a plausible interpretation, go with it rather than stalling.
-
-What do I actually know, and what am I unsure about? For the parts I am unsure of, the honest move is to be careful — either verify or say so. Do not invent specifics I do not have.
-
-Are there any edge cases that matter here? Only include them if they genuinely change the answer; do not pad the reply for its own sake.
-
-What is the cleanest way to present this? A direct answer up front, then the supporting reasoning, no more than needed.
-
-Okay, I have a reasoned view. Now I will write the final visible response.
+The user is asking for a complete HTML page with a header, a list, and a
+small bit of JavaScript that toggles list items. I'll build it as a
+standalone file. Need to include the full markup so it actually runs when
+they save and open it, not just a sketch.
 </think>
-Here is the answer, with the reasoning laid out clearly — ...`;
+Here is a complete standalone HTML file you can save and open directly:
+
+\`\`\`html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Checklist</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 2rem auto; }
+    li.done { text-decoration: line-through; opacity: 0.5; }
+    li { cursor: pointer; padding: 0.25rem 0; }
+ </style>
+</head>
+<body>
+  <h1>Checklist</h1>
+  <ul id="list">
+    <li>Walk the dog</li>
+    <li>Buy groceries</li>
+    <li>Reply to emails</li>
+ </ul>
+  <script>
+    document.getElementById("list").addEventListener("click", (e) => {
+      if (e.target.tagName === "LI") e.target.classList.toggle("done");
+    });
+ </script>
+</body>
+</html>
+\`\`\`
+
+Clicking any item crosses it off (with a strikethrough); clicking again
+un-crosses it. The whole file is self-contained, so you can save it as
+\`checklist.html\` and open it in any browser without a build step. If you
+want the list to persist across reloads, swap the click handler for one
+that writes to \`localStorage\`.`;
 
 const END_GUIDANCE = `
-Keep the visible reply concise. Don't prefix it with labels like "Final
-answer:" or "Answer:". When the reply is complete, stop — no trailing
-sign-off, no "Note:" blocks, and absolutely no disclaimers or warnings. Match the language the user wrote in.`;
+Keep the visible reply direct and complete. Concise does not mean short —
+a complete answer is always more important than brevity. Don't prefix
+it with labels like "Final answer:" or "Answer:". When the reply is
+complete, stop — no trailing sign-off, no "Note:" blocks, and no
+unnecessary disclaimers. Match the language the user wrote in.
+
+Format the visible reply so it reads cleanly:
+- Break long prose into 2-4 sentence paragraphs separated by a single
+  blank line. Do not write one mega-paragraph that runs on for the
+  whole reply.
+- End the reply at the last sentence of the last paragraph. Do not
+  add trailing blank lines or trailing whitespace after the reply.`;
+
 
 export const THOUGHT_PROMPTS: Record<string, string> = {
-  Low: `\n\nBefore answering, write a short thought (one or two sentences), then write the visible reply.\n\n${BASE_FORMAT_GUIDANCE}${SHORT_EXAMPLE}\n\n${END_GUIDANCE}`,
+  Low: `\n\nBefore answering, write a short thought identifying what is actually being asked and the appropriate domain approach, then write the visible reply.\n\n${BASE_FORMAT_GUIDANCE}${SHORT_EXAMPLE}\n\n${END_GUIDANCE}`,
 
-  Medium: `\n\nBefore answering, think it through, then write the visible reply.\n\n${BASE_FORMAT_GUIDANCE}${SHORT_EXAMPLE}\n\n${END_GUIDANCE}`,
+  Medium: `\n\nBefore answering, think it through carefully — identify the core domain and user intent, check your assumptions, choose the most appropriate algorithm or framework for the problem, and verify accuracy — then write the visible reply.\n\n${BASE_FORMAT_GUIDANCE}${SHORT_EXAMPLE}\n\n${END_GUIDANCE}`,
 
-  High: `\n\nBefore answering, reason carefully — weigh the options, check for traps — then write the visible reply.\n\n${BASE_FORMAT_GUIDANCE}${LONG_EXAMPLE}\n\n${END_GUIDANCE}`,
+  High: `\n\nBefore answering, reason carefully — weigh the options, check for traps, verify domain algorithms — then write the visible reply.\n\n${BASE_FORMAT_GUIDANCE}${LONG_EXAMPLE}\n\n${END_GUIDANCE}`,
 
   Extra: `\n\nBefore answering, reason deeply — explore alternatives, debate your first instinct, verify the conclusion — then write the visible reply.\n\n${BASE_FORMAT_GUIDANCE}${LONG_EXAMPLE}\n\n${END_GUIDANCE}`,
 
   Max: `\n\nBefore answering, take as long as you need inside the thought — analyze exhaustively, brainstorm, self-correct, double-check every fact, and verify edge cases — then write the visible reply.\n\n${BASE_FORMAT_GUIDANCE}${MAX_EXAMPLE}\n\n${END_GUIDANCE}`,
 };
 
-export function getThoughtPrompt(effort: string): string {
-  return THOUGHT_PROMPTS[effort] || THOUGHT_PROMPTS["Medium"];
+const NATIVE_REASONING_PROMPTS: Record<string, string> = {
+  Low: `\n\nReasoning effort is set to low. Keep your thinking brief and focused, moving directly to the conclusion without unnecessary elaboration. Keep your final answer clear and direct.`,
+
+  Medium: `\n\nReasoning effort is set to medium. Think carefully through the task, check assumptions, choose the best approach, and ensure accuracy in the final response.`,
+
+  High: `\n\nReasoning effort is set to high. Reason thoroughly through the task, validate key assumptions, explore alternatives, and prioritize correctness, consistency, and clarity in the final answer.`,
+
+  Extra: `\n\nReasoning effort is set to extra high. Reason deeply through the task, validate edge cases, debate alternative approaches, and provide a comprehensive, rigorous answer.`,
+
+  Max: `\n\nReasoning effort is set to maximum. Take full room to explore, analyze exhaustively, self-correct, and verify all details before delivering your final answer.`,
+};
+
+export function getThoughtPrompt(effort: string, modelId: string = ''): string {
+  const variant = detectModelVariant(modelId);
+  if (variant.hasNativeThinking) {
+    return NATIVE_REASONING_PROMPTS[effort] || NATIVE_REASONING_PROMPTS['Medium'];
+  }
+  return THOUGHT_PROMPTS[effort] || THOUGHT_PROMPTS['Medium'];
 }

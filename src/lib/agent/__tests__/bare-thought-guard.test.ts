@@ -102,9 +102,158 @@ describe("visibleContentIsEmpty", () => {
     ).toBe(false);
   });
 
-  it("returns false for a Japanese reply that includes a Latin term", () => {
+  // ---- Untagged confidence & Action labels ----
+
+  it("returns true for bare untagged confidence monologue with no visible answer", () => {
     expect(
-      visibleContentIsEmpty("日本語の答えは JavaScript と同じく動的です。"),
+      visibleContentIsEmpty(
+        ": Confidence 0.65 The greeting is simple, but I should acknowledge it warmly. Action: answer",
+      ),
+    ).toBe(true);
+  });
+
+  // ---- Echoed human/user tags ----
+
+  it("returns true for echoed <human> tag with only a thought after", () => {
+    expect(
+      visibleContentIsEmpty(
+        "<human> what you thinks about an hitman </human><think>The term hitman refers to...</think>",
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false for echoed <human> tag followed by a real visible answer", () => {
+    expect(
+      visibleContentIsEmpty(
+        "<human> what you thinks about an hitman </human><think>The term hitman refers to...</think>A hitman is a contract killer.",
+      ),
     ).toBe(false);
   });
+
+  it("handles leading answer and ask_clarification label prefixes", () => {
+    expect(
+      visibleContentIsEmpty(
+        "<think>thinking</think>answer Hitman is a critically acclaimed action-stealth game.",
+      ),
+    ).toBe(false);
+
+    expect(
+      visibleContentIsEmpty(
+        "<think>thinking</think>Answer: Hitman is a game.",
+      ),
+    ).toBe(false);
+
+    expect(
+      visibleContentIsEmpty(
+        "<think>thinking</think>ask_clarification Could you clarify what you mean by \"real hitman\"?",
+      ),
+    ).toBe(false);
+
+    expect(
+      visibleContentIsEmpty(
+        "<think>thinking</think>Action: ask_clarification",
+      ),
+    ).toBe(true);
+
+    expect(
+      visibleContentIsEmpty(
+        "<think>thinking</think>admit_ignorance I do not have enough information about this specific event.",
+      ),
+    ).toBe(false);
+
+    expect(
+      visibleContentIsEmpty(
+        "<think>thinking</think>generate_code ```python\nprint('hello')\n```",
+      ),
+    ).toBe(false);
+
+    expect(
+      visibleContentIsEmpty(
+        "<think>thinking</think>Action: generate_code",
+      ),
+    ).toBe(true);
+  });
+
+  // ---- Orphan closing </think> (prefilled chat templates) ----
+
+  it("returns true for prefilled thought ending with </think> and no visible text", () => {
+    expect(
+      visibleContentIsEmpty(
+        "User said hello. Short warm greeting needed.\n</think>",
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false for prefilled thought ending with </think> followed by visible text", () => {
+    expect(
+      visibleContentIsEmpty(
+        "User said hello. Short warm greeting needed.\n</think>\n\nHello! How can I help you today?",
+      ),
+    ).toBe(false);
+  });
+
+  it("returns true for Qwen tool_call blocks with no visible reply", () => {
+    expect(
+      visibleContentIsEmpty(
+        "<tool_call>\n<function=search_web>\n<parameter=query>\ntokyo weather\n</parameter>\n</function>\n</tool_call>",
+      ),
+    ).toBe(true);
+  });
 });
+
+describe("ensureThoughtStream", () => {
+  async function streamToString(stream: ReadableStream<string>): Promise<string> {
+    const reader = stream.getReader();
+    let result = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      result += value;
+    }
+    return result;
+  }
+
+  function createStringStream(chunks: string[]): ReadableStream<string> {
+    return new ReadableStream<string>({
+      start(controller) {
+        for (const chunk of chunks) {
+          controller.enqueue(chunk);
+        }
+        controller.close();
+      },
+    });
+  }
+
+  it("prepends <think>\\n to the first chunk when thinking is enabled and stream starts without <think>", async () => {
+    const { ensureThoughtStream } = await import("../bare-thought-guard");
+    const source = createStringStream(["User said hello. ", "Need warm reply.\n</think>\n\nHello!"]);
+    const guarded = ensureThoughtStream(source, true);
+    const result = await streamToString(guarded);
+    expect(result).toBe("<think>\nUser said hello. Need warm reply.\n</think>\n\nHello!");
+  });
+
+  it("does not duplicate <think> when stream already starts with <think>", async () => {
+    const { ensureThoughtStream } = await import("../bare-thought-guard");
+    const source = createStringStream(["<think>\nUser said hello. ", "Need warm reply.\n</think>\n\nHello!"]);
+    const guarded = ensureThoughtStream(source, true);
+    const result = await streamToString(guarded);
+    expect(result).toBe("<think>\nUser said hello. Need warm reply.\n</think>\n\nHello!");
+  });
+
+  it("handles partial leading tag chunk correctly", async () => {
+    const { ensureThoughtStream } = await import("../bare-thought-guard");
+    const source = createStringStream(["<thi", "nk>\nThinking deeply...\n</think>\n\nAnswer"]);
+    const guarded = ensureThoughtStream(source, true);
+    const result = await streamToString(guarded);
+    expect(result).toBe("<think>\nThinking deeply...\n</think>\n\nAnswer");
+  });
+
+  it("passes stream through unchanged when thinking is disabled", async () => {
+    const { ensureThoughtStream } = await import("../bare-thought-guard");
+    const source = createStringStream(["Just a normal answer."]);
+    const guarded = ensureThoughtStream(source, false);
+    const result = await streamToString(guarded);
+    expect(result).toBe("Just a normal answer.");
+  });
+});
+

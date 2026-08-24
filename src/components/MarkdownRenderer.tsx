@@ -51,25 +51,25 @@ const components: Components = {
   },
   // Typography overrides to match the design system
   p({ children }) {
-    return <p className="mb-4 last:mb-0 leading-[var(--lh-base)]">{children}</p>;
+    return <p className="mb-4 first:mt-0 last:mb-0 leading-[var(--lh-base)] break-words [overflow-wrap:anywhere]">{children}</p>;
   },
   h1({ children }) {
-    return <h1 className="text-2xl font-bold mb-4 mt-6 leading-tight">{children}</h1>;
+    return <h1 className="text-2xl font-bold mb-4 mt-6 first:mt-0 leading-tight break-words [overflow-wrap:anywhere]">{children}</h1>;
   },
   h2({ children }) {
-    return <h2 className="text-xl font-bold mb-3 mt-5 leading-tight">{children}</h2>;
+    return <h2 className="text-xl font-bold mb-3 mt-5 first:mt-0 leading-tight break-words [overflow-wrap:anywhere]">{children}</h2>;
   },
   h3({ children }) {
-    return <h3 className="text-lg font-bold mb-3 mt-4 leading-tight">{children}</h3>;
+    return <h3 className="text-lg font-bold mb-3 mt-4 first:mt-0 leading-tight break-words [overflow-wrap:anywhere]">{children}</h3>;
   },
   ul({ children }) {
-    return <ul className="list-disc pl-5 mb-4 space-y-1">{children}</ul>;
+    return <ul className="list-disc pl-5 mb-4 first:mt-0 space-y-1 break-words [overflow-wrap:anywhere]">{children}</ul>;
   },
   ol({ children }) {
-    return <ol className="list-decimal pl-5 mb-4 space-y-1">{children}</ol>;
+    return <ol className="list-decimal pl-5 mb-4 first:mt-0 space-y-1 break-words [overflow-wrap:anywhere]">{children}</ol>;
   },
   li({ children }) {
-    return <li>{children}</li>;
+    return <li className="break-words [overflow-wrap:anywhere]">{children}</li>;
   },
   a({ href, children }) {
     return (
@@ -77,7 +77,7 @@ const components: Components = {
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-[var(--accent-primary)] hover:text-[var(--accent-primary-hover)] underline underline-offset-2"
+        className="text-[var(--accent-primary)] hover:text-[var(--accent-primary-hover)] underline underline-offset-2 break-all"
       >
         {children}
       </a>
@@ -85,7 +85,7 @@ const components: Components = {
   },
   blockquote({ children }) {
     return (
-      <blockquote className="border-l-4 border-[var(--border-subtle)] pl-4 italic text-[var(--text-secondary)] mb-4">
+      <blockquote className="border-l-4 border-[var(--border-subtle)] pl-4 italic text-[var(--text-secondary)] mb-4 first:mt-0 break-words [overflow-wrap:anywhere]">
         {children}
       </blockquote>
     );

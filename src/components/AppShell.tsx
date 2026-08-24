@@ -8,6 +8,8 @@ import { Composer } from "./Composer";
 import { EmptyState } from "./EmptyState";
 import { SettingsModal } from "./SettingsModal";
 import { ProjectsView } from "./ProjectsView";
+import { AuthModal } from "./AuthModal";
+import { useAuth } from "@/contexts/AuthContext";
 import { useArtifact } from "@/contexts/ArtifactContext";
 import { ArtifactViewer } from "./ArtifactViewer";
 import {
@@ -72,7 +74,41 @@ export function AppShell() {
     localStorage.setItem("cogito.webSearch.v1", String(enabled));
   }, []);
 
-  const { activeArtifact } = useArtifact();
+  const { activeArtifact, setActiveArtifact } = useArtifact();
+  const {
+    user,
+    isAuthModalOpen,
+    authModalMode,
+    closeAuthModal,
+    syncConversationsToDb,
+    loadConversationsFromDb,
+  } = useAuth();
+
+  // Load from local database when user logs in
+  useEffect(() => {
+    if (user && isHydrated) {
+      loadConversationsFromDb().then((dbConvs) => {
+        if (dbConvs && dbConvs.length > 0) {
+          setConversations((prev) => {
+            const map = new Map<string, Conversation>();
+            for (const c of prev) map.set(c.id, c);
+            for (const c of dbConvs) map.set(c.id, c);
+            return Array.from(map.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+          });
+        }
+      });
+    }
+  }, [user, isHydrated, loadConversationsFromDb]);
+
+  // Sync to local database whenever conversations update
+  useEffect(() => {
+    if (user && isHydrated && conversations.length > 0) {
+      const timer = setTimeout(() => {
+        syncConversationsToDb(conversations);
+      }, 600);
+      return () => clearTimeout(timer);
+    }
+  }, [conversations, user, isHydrated, syncConversationsToDb]);
 
   // Hydrate from localStorage on client mount
   useEffect(() => {
@@ -774,7 +810,9 @@ export function AppShell() {
         window.history.replaceState(null, "", "/");
       }
     }
-  }, [activeConversationId, isHydrated]);
+    // Always close active sandbox when switching conversations or starting a new chat
+    setActiveArtifact(null);
+  }, [activeConversationId, isHydrated, setActiveArtifact]);
 
   useEffect(() => {
     if (isHydrated) {
@@ -874,6 +912,7 @@ export function AppShell() {
         </div>
       </div>
       <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
+      <AuthModal isOpen={isAuthModalOpen} onClose={closeAuthModal} initialMode={authModalMode} />
     </div>
   );
 }

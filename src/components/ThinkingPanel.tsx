@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useCallback, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ChevronDownIcon } from "./Icons";
 
 /**
@@ -23,7 +25,7 @@ import { ChevronDownIcon } from "./Icons";
  */
 
 export interface ThinkingItem {
-  type: "thought" | "tool_results" | "search" | "step";
+  type: "thought" | "tool_results" | "search" | "step" | "confidence";
   content?: string;
   label?: string;
   items?: Array<{ title: string; url: string; snippet: string }>;
@@ -44,7 +46,7 @@ interface ThinkingPanelProps {
 type LogStatus = "done" | "running" | "failed" | "interrupted" | "info";
 
 interface LogEntry {
-  kind: "tool" | "thinking" | "info" | "results";
+  kind: "tool" | "thinking" | "info" | "results" | "confidence";
   status: LogStatus;
   label?: string;
   params?: string;
@@ -137,6 +139,14 @@ export function buildThinkingLog(
       continue;
     }
 
+    if (item.type === "confidence") {
+      const body = (item.content ?? "").trim();
+      if (body) {
+        entries.push({ kind: "confidence", status: "done", body });
+      }
+      continue;
+    }
+
     if (item.type === "thought") {
       const body = (item.content ?? "").trim();
       if (body) {
@@ -212,15 +222,68 @@ function ThoughtBody({ body, isStreaming }: { body: string; isStreaming: boolean
   const display = !isLong || isStreaming || showMore ? body : truncate(body, TRUNCATE_LOG_NOTE);
 
   return (
-    <div>
-      <div className="whitespace-pre-wrap leading-relaxed break-words text-[var(--text-secondary)] opacity-90 pl-4 text-[0.95em]">
-        {display}
+    <div className="min-w-0 max-w-full overflow-hidden">
+      <div className="leading-relaxed break-words [overflow-wrap:anywhere] text-[var(--text-secondary)] opacity-90 text-[0.95em] min-w-0 max-w-full">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            p({ children }) {
+              return <p className="mb-2 last:mb-0 leading-relaxed break-words [overflow-wrap:anywhere]">{children}</p>;
+            },
+            pre({ children }) {
+              return (
+                <pre className="my-2 p-2.5 rounded bg-[var(--surface-sunken)] border border-[var(--border-subtle)] overflow-x-auto max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[0.88em] font-mono text-[var(--text-primary)]">
+                  {children}
+                </pre>
+              );
+            },
+            code({ inline, className, children, ...props }: any) {
+              const match = /language-(\w+)/.exec(className || "");
+              if (!inline || match || String(children).includes("\n")) {
+                return (
+                  <code className="block font-mono text-[0.88em] whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[var(--text-primary)]" {...props}>
+                    {children}
+                  </code>
+                );
+              }
+              return (
+                <code className="bg-[var(--surface-inline-code)] px-1 py-0.5 rounded text-[0.9em] font-mono text-[var(--text-primary)] break-words [overflow-wrap:anywhere]" {...props}>
+                  {children}
+                </code>
+              );
+            },
+            ul({ children }) {
+              return <ul className="list-disc pl-4 mb-2 space-y-0.5 break-words [overflow-wrap:anywhere]">{children}</ul>;
+            },
+            ol({ children }) {
+              return <ol className="list-decimal pl-4 mb-2 space-y-0.5 break-words [overflow-wrap:anywhere]">{children}</ol>;
+            },
+            li({ children }) {
+              return <li className="leading-relaxed break-words [overflow-wrap:anywhere]">{children}</li>;
+            },
+            em({ children }) {
+              return <em className="italic text-[var(--text-secondary)]">{children}</em>;
+            },
+            strong({ children }) {
+              return <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>;
+            },
+            blockquote({ children }) {
+              return (
+                <blockquote className="border-l-2 border-[var(--border-subtle)] pl-2.5 italic my-1 opacity-80 break-words [overflow-wrap:anywhere]">
+                  {children}
+                </blockquote>
+              );
+            },
+          }}
+        >
+          {display}
+        </ReactMarkdown>
       </div>
       {isLong && !isStreaming && (
         <button
           type="button"
           onClick={() => setShowMore((v) => !v)}
-          className="ml-4 mt-1 text-xs-ui text-[var(--accent-primary)] hover:text-[var(--accent-primary-hover)] opacity-80 cursor-pointer"
+          className="mt-1.5 text-xs-ui text-[var(--accent-primary)] hover:text-[var(--accent-primary-hover)] opacity-80 cursor-pointer"
         >
           {showMore ? "Show less" : "Show more"}
         </button>
@@ -235,7 +298,7 @@ function ResultList({
   items: NonNullable<ThinkingItem["items"]>;
 }) {
   return (
-    <ul className="mt-1 ml-6 space-y-1.5 border-l-[2px] border-[var(--border-subtle)] pl-3">
+    <ul className="mt-1 ml-4 space-y-1.5 border-l-[2px] border-dotted border-[var(--border-subtle)] pl-3">
       {items.map((res, i) => (
         <li key={i}>
           <a
@@ -255,15 +318,15 @@ function ResultList({
 }
 
 export function ThinkingPanel({ items, isStreaming }: ThinkingPanelProps) {
-  // null = not set by the user yet → follows the "live" default.
-  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  // Thoughts are closed/collapsed by default. Users can click to expand.
+  const [userOpen, setUserOpen] = useState<boolean>(false);
   const [resultsOpen, setResultsOpen] = useState<Record<number, boolean>>({});
 
   const entries = buildThinkingLog(items, isStreaming);
   if (entries.length === 0) return null;
 
   const live = isStreaming;
-  const isExpanded = userOpen ?? live;
+  const isExpanded = userOpen;
 
   const doneCount = entries.filter((e) => e.status === "done").length;
   const failedCount = entries.filter((e) => e.status === "failed" || e.status === "interrupted").length;
@@ -279,52 +342,65 @@ export function ThinkingPanel({ items, isStreaming }: ThinkingPanelProps) {
 
   return (
     <details
-      className="mb-4 text-sm-ui group"
+      className="mb-4 text-sm-ui group min-w-0 max-w-full overflow-hidden"
       open={isExpanded}
       onToggle={handleToggle}
     >
-      <summary className="inline-flex items-center gap-2 cursor-pointer select-none outline-none text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150 list-none [&::-webkit-details-marker]:hidden">
+      <summary className="inline-flex items-center gap-2 cursor-pointer select-none outline-none text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150 list-none [&::-webkit-details-marker]:hidden max-w-full">
         <ChevronDownIcon
           size={13}
-          className="opacity-50 transition-transform duration-200 group-open:rotate-180"
+          className="opacity-50 transition-transform duration-200 group-open:rotate-180 flex-shrink-0"
         />
         {live ? (
-          <span className="inline-flex items-center gap-2 font-medium text-[var(--accent-primary)]">
-            <span className="typing-indicator">
-              <span />
-              <span />
-              <span />
-            </span>
+          <span className="inline-flex items-center font-medium text-[var(--text-primary)] animate-pulse tracking-wide truncate">
             Thinking…
           </span>
         ) : (
-          <span className="font-medium">Thought process</span>
+          <span className="font-medium truncate">Thought process</span>
         )}
         {!live && doneCount > 0 && (
-          <span className="text-xs opacity-60 text-[var(--text-secondary)]">
+          <span className="text-xs opacity-60 text-[var(--text-secondary)] flex-shrink-0">
             · {doneCount} step{doneCount === 1 ? "" : "s"}
           </span>
         )}
         {!live && failedCount > 0 && (
-          <span className="text-xs opacity-80 text-red-400">
+          <span className="text-xs opacity-80 text-red-400 flex-shrink-0">
             · {failedCount} issue{failedCount === 1 ? "" : "s"}
           </span>
         )}
       </summary>
 
-      <div className="mt-3 ml-1 border-l-[2px] border-[var(--border-subtle)] space-y-2.5 pl-2">
+      <div className="mt-3 ml-1.5 border-l-[2px] border-[var(--border-subtle)] space-y-2.5 pl-3 min-w-0 max-w-full overflow-hidden">
         {entries.map((entry, idx) => {
+          if (entry.kind === "confidence") {
+            const rawScore = entry.body?.trim() ?? "";
+            const num = parseFloat(rawScore);
+            const formatted = !isNaN(num) && num <= 1
+              ? `${Math.round(num * 100)}%`
+              : rawScore;
+
+            return (
+              <div key={idx} className="flex items-center gap-2 py-0.5 min-w-0 max-w-full">
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-mono bg-[var(--surface-raised)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80" />
+                  <span className="opacity-75">Confidence</span>
+                  <span className="font-semibold text-[var(--text-primary)]">{formatted}</span>
+                </span>
+              </div>
+            );
+          }
+
           if (entry.kind === "tool") {
             return (
-              <div key={idx} className="flex items-baseline gap-2">
+              <div key={idx} className="flex items-baseline gap-2 py-0.5 min-w-0 max-w-full">
                 <span className="flex-shrink-0 mt-1">
                   <StatusGlyph status={entry.status} />
                 </span>
-                <span className="font-medium text-[var(--text-primary)] opacity-90 font-mono text-sm">
+                <span className="font-medium text-[var(--text-primary)] opacity-90 font-mono text-sm flex-shrink-0">
                   {entry.label}
                 </span>
                 {entry.params && (
-                  <span className="text-[var(--text-secondary)] opacity-80 break-words min-w-0 text-[0.92em]">
+                  <span className="text-[var(--text-secondary)] opacity-80 break-words [overflow-wrap:anywhere] min-w-0 max-w-full text-[0.92em]">
                     “{truncate(entry.params, 90)}”
                   </span>
                 )}
@@ -338,16 +414,16 @@ export function ThinkingPanel({ items, isStreaming }: ThinkingPanelProps) {
             return (
               <details
                 key={idx}
-                className="pl-2 text-sm-ui group/results"
+                className="text-sm-ui group/results py-0.5 min-w-0 max-w-full overflow-hidden"
                 open={openState}
                 onToggle={(e) => toggleResults(idx, e.currentTarget.open)}
               >
-                <summary className="inline-flex items-center gap-2 cursor-pointer select-none outline-none text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150 list-none [&::-webkit-details-marker]:hidden">
+                <summary className="inline-flex items-center gap-2 cursor-pointer select-none outline-none text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150 list-none [&::-webkit-details-marker]:hidden max-w-full">
                   <ChevronDownIcon
                     size={11}
-                    className="transition-transform duration-200 group-open/results:rotate-180"
+                    className="transition-transform duration-200 group-open/results:rotate-180 flex-shrink-0"
                   />
-                  <span className="font-medium">{entry.summary || "Search results"}</span>
+                  <span className="font-medium truncate">{entry.summary || "Search results"}</span>
                 </summary>
                 {results.length > 0 && <ResultList items={results} />}
               </details>
@@ -355,16 +431,20 @@ export function ThinkingPanel({ items, isStreaming }: ThinkingPanelProps) {
           }
 
           if (entry.kind === "thinking") {
-            return <ThoughtBody key={idx} body={entry.body ?? ""} isStreaming={live} />;
+            return (
+              <div key={idx} className="py-0.5 min-w-0 max-w-full overflow-hidden">
+                <ThoughtBody body={entry.body ?? ""} isStreaming={live} />
+              </div>
+            );
           }
 
           // info
           return (
-            <div key={idx} className="flex items-baseline gap-2">
+            <div key={idx} className="flex items-baseline gap-2 py-0.5 min-w-0 max-w-full">
               <span className="flex-shrink-0 mt-1">
                 <StatusGlyph status={entry.status} />
               </span>
-              <span className="text-[var(--text-secondary)] opacity-85 text-[0.92em] break-words min-w-0">
+              <span className="text-[var(--text-secondary)] opacity-85 text-[0.92em] break-words [overflow-wrap:anywhere] min-w-0 max-w-full">
                 {entry.body}
               </span>
             </div>

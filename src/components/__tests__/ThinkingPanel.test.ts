@@ -68,6 +68,15 @@ describe("buildThinkingLog", () => {
     expect(entries[0]).toMatchObject({ kind: "info", status: "info" });
   });
 
+  it("renders confidence as a confidence entry", () => {
+    const entries = buildThinkingLog(
+      [{ type: "confidence", content: "0.95" }],
+      false,
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ kind: "confidence", status: "done", body: "0.95" });
+  });
+
   it("returns an empty log for an empty group", () => {
     expect(buildThinkingLog([], false)).toEqual([]);
   });

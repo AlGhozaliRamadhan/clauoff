@@ -3,9 +3,12 @@
 import React, { createContext, useContext, useState } from "react";
 
 export interface Artifact {
+  id?: string;
   language: string;
   content: string;
   title?: string;
+  subtitle?: string;
+  type?: "code" | "react" | "html" | "svg" | "markdown" | "image";
 }
 
 interface ArtifactContextType {

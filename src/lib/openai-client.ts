@@ -1,11 +1,12 @@
 import type { ChatBackend, NormalizedChatRequest, NormalizedModel } from '@/lib/types';
 import { parseSSE } from '@/lib/stream-parser';
+import { getReasoningRequestParams } from '@/lib/model-variants';
 
 /**
  * OpenAI-compatible backend client.
  * Speaks the standard OpenAI chat-completions wire protocol against any
  * compatible endpoint (LM Studio, Ollama's /v1, Cloudflare-tunneled APIs,
- * etc.). Some proxies require the browser-identifying headers below.
+ * vLLM, DeepSeek, etc.).
  */
 export class OpenAiClient implements ChatBackend {
   private readonly baseUrl: string;
@@ -31,20 +32,32 @@ export class OpenAiClient implements ChatBackend {
   }
 
   async streamChat(request: NormalizedChatRequest): Promise<ReadableStream<string>> {
+    const reasoningParams = getReasoningRequestParams(
+      request.model,
+      request.reasoning_effort === 'high' ? 'High' : request.reasoning_effort === 'low' ? 'Low' : 'Medium',
+      request.reasoning_effort !== undefined,
+    );
+
+    const body: Record<string, unknown> = {
+      model: request.model,
+      messages: request.messages,
+      stream: true,
+      max_tokens: request.max_tokens || 8192,
+      options: {
+        num_ctx: 32768,
+      },
+      ...(request.reasoning_effort && { reasoning_effort: request.reasoning_effort }),
+      ...(request.frequency_penalty !== undefined && { frequency_penalty: request.frequency_penalty }),
+      // Some backends (cogito.py / llama.cpp) only honor repeat_penalty.
+      // Send both so either implementation applies anti-repetition.
+      ...(request.repeat_penalty !== undefined && { repeat_penalty: request.repeat_penalty }),
+      ...reasoningParams,
+    };
+
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({
-        model: request.model,
-        messages: request.messages,
-        stream: true,
-        max_tokens: request.max_tokens || 8192,
-        ...(request.reasoning_effort && { reasoning_effort: request.reasoning_effort }),
-        ...(request.frequency_penalty !== undefined && { frequency_penalty: request.frequency_penalty }),
-        // Some backends (cogito.py / llama.cpp) only honor repeat_penalty.
-        // Send both so either implementation applies anti-repetition.
-        ...(request.repeat_penalty !== undefined && { repeat_penalty: request.repeat_penalty }),
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {

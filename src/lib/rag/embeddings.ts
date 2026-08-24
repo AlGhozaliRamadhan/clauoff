@@ -3,7 +3,7 @@
  * Same auth pattern as OpenAiClient (ADR-0005).
  */
 
-import { getActiveBackendConfig } from "@/app/api/config/route";
+import { getActiveBackendConfig } from "@/lib/api-profiles";
 
 const BATCH_SIZE = 16;
 

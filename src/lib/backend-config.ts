@@ -1,6 +1,6 @@
 import { OpenAiClient } from '@/lib/openai-client';
 import type { ChatBackend } from '@/lib/types';
-import { getActiveBackendConfig } from '@/app/api/config/route';
+import { getActiveBackendConfig } from '@/lib/api-profiles';
 
 /**
  * Returns a fresh backend client built from the currently-active API profile.

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono, Lora } from "next/font/google";
 import { ArtifactProvider } from "@/contexts/ArtifactContext";
+import { AuthProvider } from "@/contexts/AuthContext";
 import "./globals.css";
 
 const inter = Inter({
@@ -43,9 +44,11 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">
-        <ArtifactProvider>
-          {children}
-        </ArtifactProvider>
+        <AuthProvider>
+          <ArtifactProvider>
+            {children}
+          </ArtifactProvider>
+        </AuthProvider>
       </body>
     </html>
   );

@@ -29,28 +29,54 @@ const CJK_RANGE = "\\u3400-\\u9fff\\uf900-\\ufaff\\u3040-\\u30ff\\uac00-\\ud7af"
  *      (almost always the model "thinking out loud" in another language
  *      instead of writing the actual reply) */
 export function visibleContentIsEmpty(text: string): boolean {
-  const stripped = text
+  // If the text starts with a prefilled thought that ends in </think> without an opening <think>
+  let normalizedText = text;
+  const firstOpenThink = normalizedText.search(/<\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>/i);
+  const firstCloseThink = normalizedText.search(/<\/\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>/i);
+  if (firstCloseThink !== -1 && (firstOpenThink === -1 || firstCloseThink < firstOpenThink)) {
+    normalizedText = `<think>${normalizedText}`;
+  }
+
+  const stripped = normalizedText
+    .replace(/<\s*(?:human|user)\s*>[\s\S]*?<\/\s*(?:human|user)\s*>\s*/gi, "")
+    .replace(/<\/?\s*(?:human|user|assistant)\b[^>]*>/gi, "")
     .replace(/<confidence>[\s\S]*?<\/confidence>/gi, "")
+    .replace(/^(\s*:\s*|\s*)Confidence(?:\s*Score)?\s*:?\s*(?:0\.\d+|1(?:\.0+)?|\d+%|[A-Za-z]+)?\b[\s\S]*?(?:Action:\s*\w+\s*|Answer:\s*|Final Answer:\s*|\b(?:ask_clarification|ask_question|clarify|answer|admit_ignorance|cannot_answer|apologize|refuse|generate_code|write_code|code_generation|create_code|generate_response|write_response|run_python|execute_python|python|search_web|terminal|bash)\s+(?=[A-Z0-9"“'‘`])|$)/gim, "")
+    .replace(/^\s*(?::\s*)?Confidence(?:\s*Score)?\s*:?\s*(?:0\.\d+|1(?:\.0+)?|\d+%|[A-Za-z]+)?\s*$/gim, "")
+    .replace(/<tool_call[\s\S]*?<\/tool_call>/gi, "")
+    .replace(/<tool_response[\s\S]*?<\/tool_response>/gi, "")
     .replace(/<action[^>]*>[\s\S]*?<\/action>/gi, "")
     .replace(/<action[^>]*>/gi, "")
-    .replace(/<\s*(?:\|)?(?:thought|think)\b[^>]*>[\s\S]*?<\/\s*(?:\|)?(?:thought|think)\b[^>]*>/gi, "")
-    .replace(/<\s*(?:\|)?(?:thought|think)\b[^>]*>[\s\S]*$/i, "")
+    .replace(/<\/?action\b[^>]*>/gi, "")
+    .replace(/Action:\s*[a-z_]+\s*/gi, "")
+    .replace(/<\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>[\s\S]*?<\/\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>/gi, "")
+    .replace(/<\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>[\s\S]*$/i, "")
     .replace(/<step(?:>|\s[^>]*>)[\s\S]*?<\/step>/gi, "")
     .replace(/<step(?:>|\s[^>]*>)[\s\S]*$/i, "")
     .replace(/<verification(?:>|\s[^>]*>)[\s\S]*?<\/verification>/gi, "")
+    .replace(/<\/?\s*(?:hotfix|patch|fix|update|output|message|code_block|file|response|code)\b[^>]*>/gi, "")
     .replace(/<tool_results[\s\S]*?<\/tool_results>/gi, "")
-    .replace(/^\s*Final\s+Answer:\s*/i, "")
+    .replace(/^\s*(?:Action\s*:?\s*)?(?:Final\s+)?Answer\s*[:\-–—]\s*/i, "")
+    .replace(/^\s*(?:Action\s*:\s*)?(?:ask_clarification|ask_question|ask_user|clarify|clarification|request_clarification|final_answer|direct_answer|admit_ignorance|cannot_answer|apologize|refuse|generate_code|write_code|code_generation|create_code|generate_response|write_response|code|run_python|execute_python|python|python_interpreter|search_web|web_search|google_search|terminal|bash|shell|execute_command|run_command|code_runner)\s*[:\-–—]?\s*/i, "")
+    .replace(/^\s*(?:run_python|execute_python|python_interpreter|search_web|web_search|google_search|terminal|bash|shell|execute_command|run_command|code_runner)\s*$/gim, "")
+    .replace(/^\s*(?:text|response|reply|output|content|answer|action|code|hotfix|patch|update)\s*$/gim, "")
+    .replace(/^\s*Action\s*:\s*(?:[a-z_]+\s*)?/i, "")
+    .replace(/^\s*answer\s*[:\-–—]\s*/i, "")
+    .replace(/^\s*answer\s+(?=[A-Z0-9"“'‘])/i, "")
+    .replace(/^\s*Response\s*[:\-–—]\s*/i, "")
     .replace(new RegExp(`[${CJK_RANGE}\\ud83c-\\ud83e]+$`, "u"), "")
     .trim();
   if (stripped.length === 0) return true;
 
-  // <confidence> block is a strong internal-narration signal. If the model
-  // emitted one but didn't follow up with a clear sentence-final answer
+  // <confidence> or untagged Confidence block is a strong internal-narration signal.
+  // If the model emitted one but didn't follow up with a clear sentence-final answer
   // (period / question mark / exclamation at the end), the rest is
   // probably also internal monologue — treat the whole reply as bare thought.
-  if (/<confidence>/i.test(text)) {
-    const hasSentenceEnd = /[.!?…]"?\)?\s*$/.test(stripped);
-    if (!hasSentenceEnd) return true;
+  if (/<confidence>/i.test(text) || /^\s*(?::\s*)?Confidence/i.test(text)) {
+    if (stripped.length < 25) {
+      const hasSentenceEnd = /[.!?…]"?\)?\s*$/.test(stripped);
+      if (!hasSentenceEnd) return true;
+    }
   }
 
   // Pure-non-Latin reply: the model almost certainly switched languages
@@ -67,6 +93,73 @@ export function visibleContentIsEmpty(text: string): boolean {
 }
 
 /**
+ * Ensures that when reasoning/thinking is active, the stream sent to the client
+ * begins with an opening `<think>\n` tag from the very first token if the model
+ * backend started generating inside a prefilled thought (e.g. Qwen/DeepSeek templates).
+ */
+export function ensureThoughtStream(
+  sourceStream: ReadableStream<string>,
+  thinkingEnabled: boolean,
+): ReadableStream<string> {
+  if (!thinkingEnabled) return sourceStream;
+
+  return new ReadableStream<string>({
+    async start(controller) {
+      const reader = sourceStream.getReader();
+      let hasDecided = false;
+      let buffer = "";
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          if (!hasDecided) {
+            buffer += value;
+            const trimmed = buffer.trimStart();
+
+            // If we have leading partial tags like "<" or "<thi", wait for more chars unless buffer is long enough
+            if (trimmed.startsWith("<") && !trimmed.includes(">") && trimmed.length < 15) {
+              continue;
+            }
+
+            hasDecided = true;
+            if (/^<\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>/i.test(trimmed)) {
+              // The backend stream already starts with an opening <think> tag!
+              controller.enqueue(buffer);
+            } else {
+              // The backend stream started directly with thought text (e.g. prefilled template).
+              // Prepend <think>\n so the client renders it in ThinkingPanel from the very first token!
+              controller.enqueue("<think>\n" + buffer);
+            }
+            buffer = "";
+          } else {
+            controller.enqueue(value);
+          }
+        }
+
+        // Flush any remaining buffer if stream ended early
+        if (buffer) {
+          if (!hasDecided) {
+            const trimmed = buffer.trimStart();
+            if (/^<\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>/i.test(trimmed)) {
+              controller.enqueue(buffer);
+            } else {
+              controller.enqueue("<think>\n" + buffer);
+            }
+          } else {
+            controller.enqueue(buffer);
+          }
+        }
+        controller.close();
+      } catch (err) {
+        controller.error(err);
+      }
+    },
+  });
+}
+
+/**
  * Wraps a first-turn stream so that if the model emits a bare thought,
  * a continuation turn is automatically triggered and appended.
  *
@@ -80,6 +173,8 @@ export function wrapWithBareThoughtGuard(
   model: string,
   reasoning_effort: "low" | "medium" | "high" | undefined,
 ): ReadableStream<string> {
+  const normalizedStream = ensureThoughtStream(firstTurnStream, reasoning_effort !== undefined);
+
   return new ReadableStream<string>({
     async start(controller) {
       let accumulated = "";
@@ -88,7 +183,7 @@ export function wrapWithBareThoughtGuard(
       try {
         // Tee the first turn so we can stream it to the client AND
         // accumulate a copy for the visibility check.
-        const [clientBranch, serverBranch] = firstTurnStream.tee();
+        const [clientBranch, serverBranch] = normalizedStream.tee();
         const reader = serverBranch.getReader();
 
         // Forward the first turn to the client in lockstep.
@@ -156,7 +251,7 @@ export function wrapWithBareThoughtGuard(
               })),
               stream: true,
               reasoning_effort,
-              max_tokens: 1024,
+              max_tokens: 8192,
               frequency_penalty: 0.6,
               repeat_penalty: 1.1,
             });

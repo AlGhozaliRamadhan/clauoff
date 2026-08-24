@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { SettingsIcon, SearchIcon } from "./Icons";
+import { SettingsIcon, SearchIcon, ShieldCheckIcon, DatabaseIcon, UserPlusIcon, LockIcon, CheckIcon } from "./Icons";
+import { useAuth } from "@/contexts/AuthContext";
+import { AVATAR_COLORS } from "@/lib/auth/types";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -142,9 +144,24 @@ function MoonIcon({ size = 16 }: { size?: number }) {
 }
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
+  const { user, openAuthModal, logout, updateProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<string>("general");
   const [searchQuery, setSearchQuery] = useState<string>("");
   
+  // Account tab states
+  const [accountDisplayName, setAccountDisplayName] = useState<string>("");
+  const [accountAvatarColor, setAccountAvatarColor] = useState<string>(AVATAR_COLORS[0]);
+  const [accountPassword, setAccountPassword] = useState<string>("");
+  const [accountStatus, setAccountStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [isUpdatingAccount, setIsUpdatingAccount] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (user) {
+      setAccountDisplayName(user.displayName);
+      setAccountAvatarColor(user.avatarColor || AVATAR_COLORS[0]);
+    }
+  }, [user]);
+
   // Settings Form States (General tab)
   const [fullName, setFullName] = useState<string>("Al Ghozali Ramadhan");
   const [nickname, setNickname] = useState<string>("oza");
@@ -1255,6 +1272,190 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </svg>
                 </button>
               </div>
+            </div>
+          ) : activeTab === "account" ? (
+            <div className="flex flex-col gap-6 max-w-2xl mt-2 pr-2">
+              {/* Header */}
+              <div>
+                <h2 className="text-base font-semibold text-[var(--text-primary)] mb-1">Account</h2>
+                <p className="text-xs-ui text-[var(--text-secondary)] leading-relaxed">
+                  Manage your personal profile and account credentials.
+                </p>
+                <div className="w-full border-b border-[var(--border-subtle)] my-3" />
+              </div>
+
+              {accountStatus && (
+                <div
+                  className={`p-3 rounded-xl text-xs flex items-center gap-2 border ${
+                    accountStatus.type === "success"
+                      ? "bg-emerald-950/40 border-emerald-800/60 text-emerald-300"
+                      : "bg-red-950/40 border-red-800/60 text-red-300"
+                  }`}
+                >
+                  <span>{accountStatus.type === "success" ? "✓" : "⚠️"}</span>
+                  <span>{accountStatus.message}</span>
+                </div>
+              )}
+
+              {user ? (
+                <>
+                  {/* Profile Card */}
+                  <div
+                    className="p-4 rounded-xl border flex items-center gap-4"
+                    style={{
+                      backgroundColor: "rgba(255, 255, 255, 0.02)",
+                      borderColor: "var(--border-subtle)",
+                    }}
+                  >
+                    <div
+                      className="w-14 h-14 rounded-full flex items-center justify-center text-xl font-bold text-white shadow-md flex-shrink-0"
+                      style={{ backgroundColor: accountAvatarColor || user.avatarColor || "var(--accent-primary)" }}
+                    >
+                      {(accountDisplayName || user.displayName || user.username).slice(0, 1).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-[var(--text-primary)] truncate">
+                        {user.displayName}
+                      </div>
+                      <div className="text-xs text-[var(--text-secondary)] font-mono truncate">
+                        @{user.username}
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-[rgba(255,255,255,0.06)] text-[var(--text-secondary)]">
+                          ID: {user.id.slice(0, 8)}...
+                        </span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/50 text-emerald-400 border border-emerald-800/40 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          Active
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Edit Profile Form */}
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]">
+                        Display Name
+                      </label>
+                      <input
+                        type="text"
+                        value={accountDisplayName}
+                        onChange={(e) => setAccountDisplayName(e.target.value)}
+                        className="w-full px-3.5 py-2 rounded-xl text-xs-ui bg-[rgba(0,0,0,0.15)] border border-[var(--border-subtle)] outline-none text-[var(--text-primary)] focus:border-[var(--accent-primary)] transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]">
+                        Avatar Color
+                      </label>
+                      <div className="flex items-center gap-2 pt-0.5">
+                        {AVATAR_COLORS.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setAccountAvatarColor(c)}
+                            className="w-6 h-6 rounded-full flex items-center justify-center transition-transform hover:scale-110 cursor-pointer"
+                            style={{
+                              backgroundColor: c,
+                              boxShadow: accountAvatarColor === c ? "0 0 0 2px var(--surface-app), 0 0 0 4px " + c : "none",
+                            }}
+                          >
+                            {accountAvatarColor === c && <CheckIcon size={12} className="text-white" />}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]">
+                        Change Password (leave blank to keep current)
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="New password (min. 3 characters)"
+                        value={accountPassword}
+                        onChange={(e) => setAccountPassword(e.target.value)}
+                        className="w-full px-3.5 py-2 rounded-xl text-xs-ui bg-[rgba(0,0,0,0.15)] border border-[var(--border-subtle)] outline-none text-[var(--text-primary)] focus:border-[var(--accent-primary)] transition-all"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isUpdatingAccount}
+                      onClick={async () => {
+                        setIsUpdatingAccount(true);
+                        setAccountStatus(null);
+                        const result = await updateProfile({
+                          displayName: accountDisplayName,
+                          avatarColor: accountAvatarColor,
+                          password: accountPassword || undefined,
+                        });
+                        setIsUpdatingAccount(false);
+                        if (result.success) {
+                          setAccountStatus({ type: "success", message: "Account profile updated successfully" });
+                          setAccountPassword("");
+                          setTimeout(() => setAccountStatus(null), 4000);
+                        } else {
+                          setAccountStatus({ type: "error", message: result.error || "Failed to update profile" });
+                        }
+                      }}
+                      className="px-4 py-2 rounded-xl text-xs font-medium bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white transition-all cursor-pointer shadow-sm disabled:opacity-50"
+                    >
+                      {isUpdatingAccount ? "Saving changes..." : "Save Profile Changes"}
+                    </button>
+                  </div>
+
+                  {/* Account Switch & Logout */}
+                  <div className="pt-2 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        openAuthModal("switch");
+                      }}
+                      className="px-4 py-2 rounded-xl text-xs font-medium border border-[var(--border-subtle)] hover:bg-[var(--bg-sidebar-hover)] text-[var(--text-primary)] transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <UserPlusIcon size={14} />
+                      <span>Switch Account</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await logout();
+                        setAccountStatus({ type: "success", message: "Signed out successfully" });
+                      }}
+                      className="px-4 py-2 rounded-xl text-xs font-medium text-red-400 hover:bg-red-950/30 border border-red-900/40 transition-all cursor-pointer"
+                    >
+                      Sign Out
+                    </button>
+                  </div>
+                </>
+              ) : (
+                /* Guest State */
+                <div className="flex flex-col items-center justify-center p-8 text-center space-y-4 rounded-xl border border-[var(--border-subtle)] bg-[rgba(255,255,255,0.01)]">
+                  <div className="w-12 h-12 rounded-full bg-[rgba(201,96,63,0.15)] flex items-center justify-center text-[var(--accent-primary)]">
+                    <UserPlusIcon size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)]">Guest Mode Active</h3>
+                    <p className="text-xs text-[var(--text-secondary)] mt-1 max-w-sm">
+                      Sign in or create a free account to save your chat history and preferences.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      openAuthModal("login");
+                    }}
+                    className="px-5 py-2.5 rounded-xl text-xs font-medium bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white transition-all cursor-pointer shadow-md"
+                  >
+                    Sign In / Create Account
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             // Stub message for other tabs
