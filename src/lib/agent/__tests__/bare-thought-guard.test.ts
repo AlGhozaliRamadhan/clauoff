@@ -224,15 +224,7 @@ describe("ensureThoughtStream", () => {
     });
   }
 
-  it("prepends <think>\\n to the first chunk when thinking is enabled and stream starts without <think>", async () => {
-    const { ensureThoughtStream } = await import("../bare-thought-guard");
-    const source = createStringStream(["User said hello. ", "Need warm reply.\n</think>\n\nHello!"]);
-    const guarded = ensureThoughtStream(source, true);
-    const result = await streamToString(guarded);
-    expect(result).toBe("<think>\nUser said hello. Need warm reply.\n</think>\n\nHello!");
-  });
-
-  it("does not duplicate <think> when stream already starts with <think>", async () => {
+  it("passes stream through transparently when thinking is active", async () => {
     const { ensureThoughtStream } = await import("../bare-thought-guard");
     const source = createStringStream(["<think>\nUser said hello. ", "Need warm reply.\n</think>\n\nHello!"]);
     const guarded = ensureThoughtStream(source, true);
@@ -240,12 +232,12 @@ describe("ensureThoughtStream", () => {
     expect(result).toBe("<think>\nUser said hello. Need warm reply.\n</think>\n\nHello!");
   });
 
-  it("handles partial leading tag chunk correctly", async () => {
+  it("passes plain answer stream through unchanged without injecting think tags", async () => {
     const { ensureThoughtStream } = await import("../bare-thought-guard");
-    const source = createStringStream(["<thi", "nk>\nThinking deeply...\n</think>\n\nAnswer"]);
+    const source = createStringStream(["Hello! How can I help you today?"]);
     const guarded = ensureThoughtStream(source, true);
     const result = await streamToString(guarded);
-    expect(result).toBe("<think>\nThinking deeply...\n</think>\n\nAnswer");
+    expect(result).toBe("Hello! How can I help you today?");
   });
 
   it("passes stream through unchanged when thinking is disabled", async () => {

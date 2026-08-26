@@ -2,20 +2,25 @@
 
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { CogitoMark } from "./CogitoBrand";
-import { CopyIcon, CheckIcon } from "./Icons";
+import { CopyIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, RefreshIcon } from "./Icons";
 import { SourceChips } from "./SourceChips";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { ThinkingPanel, type ThinkingItem } from "./ThinkingPanel";
 import { CodeBlock, inferArtifactMeta, getFileExtension, ArtifactIcon } from "./CodeBlock";
+import { AudioPlayerButton } from "./AudioPlayerButton";
 import { useArtifact } from "@/contexts/ArtifactContext";
 import { parseAnyToolCall } from "@/lib/agent/tool-parser";
 import type { SourceCitation } from "@/lib/rag/types";
+import type { VersionInfo } from "./ChatThread";
 
 interface MessageAssistantProps {
   content: string;
   isStreaming?: boolean;
   sources?: SourceCitation[];
-  onRetry?: () => void;
+  onRetry?: (messageId?: string) => void;
+  messageId?: string;
+  versionInfo?: VersionInfo;
+  onSwitchVersion?: (targetNodeId: string) => void;
 }
 
 interface ToolResultsItem {
@@ -170,6 +175,9 @@ export function MessageAssistant({
   isStreaming = false,
   sources,
   onRetry,
+  messageId,
+  versionInfo,
+  onSwitchVersion,
 }: MessageAssistantProps) {
   const [copied, setCopied] = useState(false);
 
@@ -363,65 +371,64 @@ export function MessageAssistant({
   if (lastIndex < remaining.length) {
     let tail = remaining.substring(lastIndex);
     
-    // Handle unclosed blocks if streaming
-    if (isStreaming) {
-      const unclosedThink = tail.match(/<\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>/i);
-      const unclosedStep = tail.match(/<step(?:>|\s[^>]*>)/i);
-      const unclosedArtifact = tail.match(/<(?:antA|a)rtifact\s+([^>]*)>/i);
-      const unclosedCodeArtifact = tail.match(/```(html|htm|jsx|tsx|react|svg)\b/i);
-      
-      const indices = [
-        unclosedThink ? tail.indexOf(unclosedThink[0]) : -1,
-        unclosedStep ? tail.indexOf(unclosedStep[0]) : -1,
-        unclosedArtifact ? tail.indexOf(unclosedArtifact[0]) : -1,
-        unclosedCodeArtifact ? tail.indexOf(unclosedCodeArtifact[0]) : -1,
-      ].filter((i) => i !== -1);
-      
-      let splitIdx = -1;
-      if (indices.length > 0) {
-        splitIdx = Math.min(...indices);
+    // Always detect and parse unclosed blocks (thoughts, steps, artifacts)
+    // so that stopped-mid-thought or streaming states always settle inside the ThinkingPanel
+    const unclosedThink = tail.match(/<\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>/i);
+    const unclosedStep = tail.match(/<step(?:>|\s[^>]*>)/i);
+    const unclosedArtifact = tail.match(/<(?:antA|a)rtifact\s+([^>]*)>/i);
+    const unclosedCodeArtifact = tail.match(/```(html|htm|jsx|tsx|react|svg)\b/i);
+    
+    const indices = [
+      unclosedThink ? tail.indexOf(unclosedThink[0]) : -1,
+      unclosedStep ? tail.indexOf(unclosedStep[0]) : -1,
+      unclosedArtifact ? tail.indexOf(unclosedArtifact[0]) : -1,
+      unclosedCodeArtifact ? tail.indexOf(unclosedCodeArtifact[0]) : -1,
+    ].filter((i) => i !== -1);
+    
+    let splitIdx = -1;
+    if (indices.length > 0) {
+      splitIdx = Math.min(...indices);
+    }
+    
+    if (splitIdx !== -1) {
+      const visible = tail.substring(0, splitIdx);
+      const unclosed = tail.substring(splitIdx);
+      pushTextBlock(visible);
+      if (unclosed.startsWith("<step")) {
+        const unclosedClean = stripInternal(unclosed);
+        if (unclosedClean.trim()) blocks.push({ type: "step", content: unclosedClean });
+      } else if (unclosed.toLowerCase().startsWith("<artifact") || unclosed.toLowerCase().startsWith("<antartifact")) {
+        const openTag = unclosed.match(/<(?:antA|a)rtifact\s+([^>]*)>/i);
+        const attrs = openTag?.[1] || "";
+        const title = attrs.match(/title=['"]([^'"]*)['"]/i)?.[1] || "";
+        const language = attrs.match(/language=['"]([^'"]*)['"]/i)?.[1] || attrs.match(/type=['"]([^'"]*)['"]/i)?.[1] || "text";
+        const identifier = attrs.match(/identifier=['"]([^'"]*)['"]/i)?.[1];
+        const tagLen = openTag ? openTag[0].length : 0;
+        const body = unclosed.substring(tagLen);
+        blocks.push({
+          type: "artifact",
+          content: body,
+          title,
+          language,
+          identifier,
+        });
+      } else if (unclosed.startsWith("```")) {
+        const matchCode = unclosed.match(/```(html|htm|jsx|tsx|react|svg)[^\n]*\n?/i);
+        const lang = matchCode?.[1] || "html";
+        const tagLen = matchCode ? matchCode[0].length : 3;
+        const body = unclosed.substring(tagLen);
+        const meta = inferArtifactMeta(lang, body);
+        blocks.push({
+          type: "artifact",
+          content: body,
+          title: meta.title,
+          language: lang,
+        });
+      } else {
+        const unclosedClean = stripInternal(unclosed);
+        if (unclosedClean.trim()) blocks.push({ type: "thought", content: unclosedClean });
       }
-      
-      if (splitIdx !== -1) {
-        const visible = tail.substring(0, splitIdx);
-        const unclosed = tail.substring(splitIdx);
-        pushTextBlock(visible);
-        if (unclosed.startsWith("<step")) {
-          const unclosedClean = stripInternal(unclosed);
-          if (unclosedClean.trim()) blocks.push({ type: "step", content: unclosedClean });
-        } else if (unclosed.toLowerCase().startsWith("<artifact") || unclosed.toLowerCase().startsWith("<antartifact")) {
-          const openTag = unclosed.match(/<(?:antA|a)rtifact\s+([^>]*)>/i);
-          const attrs = openTag?.[1] || "";
-          const title = attrs.match(/title=['"]([^'"]*)['"]/i)?.[1] || "";
-          const language = attrs.match(/language=['"]([^'"]*)['"]/i)?.[1] || attrs.match(/type=['"]([^'"]*)['"]/i)?.[1] || "text";
-          const identifier = attrs.match(/identifier=['"]([^'"]*)['"]/i)?.[1];
-          const tagLen = openTag ? openTag[0].length : 0;
-          const body = unclosed.substring(tagLen);
-          blocks.push({
-            type: "artifact",
-            content: body,
-            title,
-            language,
-            identifier,
-          });
-        } else if (unclosed.startsWith("```")) {
-          const matchCode = unclosed.match(/```(html|htm|jsx|tsx|react|svg)[^\n]*\n?/i);
-          const lang = matchCode?.[1] || "html";
-          const tagLen = matchCode ? matchCode[0].length : 3;
-          const body = unclosed.substring(tagLen);
-          const meta = inferArtifactMeta(lang, body);
-          blocks.push({
-            type: "artifact",
-            content: body,
-            title: meta.title,
-            language: lang,
-          });
-        } else {
-          const unclosedClean = stripInternal(unclosed);
-          if (unclosedClean.trim()) blocks.push({ type: "thought", content: unclosedClean });
-        }
-        tail = "";
-      }
+      tail = "";
     }
     
     if (tail.trim()) {
@@ -594,24 +601,64 @@ export function MessageAssistant({
           )}
 
           {!isStreaming && content && (
-            <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+            <div className="flex items-center gap-1.5 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-xs-ui">
+              {/* Version switcher (< 1/2 >) if multiple generations exist */}
+              {versionInfo && versionInfo.total > 1 && onSwitchVersion && (
+                <div className="flex items-center gap-0.5 mr-1 text-[11px] text-[var(--text-secondary)] select-none border border-[var(--border-subtle)] rounded-md px-1 py-0.5 bg-[var(--surface-raised)] shadow-2xs">
+                  <button
+                    type="button"
+                    disabled={versionInfo.currentIndex === 0}
+                    onClick={() => {
+                      if (versionInfo.currentIndex > 0) {
+                        onSwitchVersion(versionInfo.siblings[versionInfo.currentIndex - 1]);
+                      }
+                    }}
+                    className="p-0.5 rounded hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                    title="Previous response"
+                    aria-label="Previous response"
+                  >
+                    <ChevronLeftIcon size={12} />
+                  </button>
+                  <span className="font-mono px-1">
+                    {versionInfo.currentIndex + 1} / {versionInfo.total}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={versionInfo.currentIndex >= versionInfo.total - 1}
+                    onClick={() => {
+                      if (versionInfo.currentIndex < versionInfo.total - 1) {
+                        onSwitchVersion(versionInfo.siblings[versionInfo.currentIndex + 1]);
+                      }
+                    }}
+                    className="p-0.5 rounded hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                    title="Next response"
+                    aria-label="Next response"
+                  >
+                    <ChevronRightIcon size={12} />
+                  </button>
+                </div>
+              )}
+
+              <AudioPlayerButton
+                text={rawCopyText || content}
+                id={messageId || `msg-${rawCopyText.slice(0, 16)}`}
+                size={15}
+              />
               <button
                 onClick={handleCopy}
-                className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded hover:bg-[var(--surface-hover)] transition-colors"
+                className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
                 title="Copy to clipboard"
               >
                 {copied ? <CheckIcon className="w-4 h-4" /> : <CopyIcon className="w-4 h-4" />}
               </button>
               {onRetry && (
                 <button
-                  onClick={onRetry}
-                  className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded hover:bg-[var(--surface-hover)] transition-colors"
-                  title="Retry"
+                  onClick={() => onRetry(messageId)}
+                  className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
+                  title="Retry response"
+                  aria-label="Retry response"
                 >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-4 h-4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 2v6h-6"></path>
-                    <path d="M3 12a9 9 0 102.13-5.87L21 8"></path>
-                  </svg>
+                  <RefreshIcon size={14} />
                 </button>
               )}
             </div>

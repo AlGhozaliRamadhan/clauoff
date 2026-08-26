@@ -1,11 +1,14 @@
-"use client";
-
 import type { Message } from "@/components/ChatThread";
+import type { MessageNode } from "@/lib/tree-utils";
 
 export interface Conversation {
   id: string;
   title: string;
   messages: Message[];
+  /** Message DAG tree mapping for branching, versioning, and checkpoints */
+  mapping?: Record<string, MessageNode>;
+  /** Active leaf node ID of the currently selected conversation branch */
+  currentLeafId?: string | null;
   createdAt: number;
   updatedAt: number;
   /** When set, /api/chat retrieves from this project library (ADR-0005). */

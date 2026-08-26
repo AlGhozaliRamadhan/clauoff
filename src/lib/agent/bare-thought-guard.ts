@@ -93,70 +93,14 @@ export function visibleContentIsEmpty(text: string): boolean {
 }
 
 /**
- * Ensures that when reasoning/thinking is active, the stream sent to the client
- * begins with an opening `<think>\n` tag from the very first token if the model
- * backend started generating inside a prefilled thought (e.g. Qwen/DeepSeek templates).
+ * Transparent pass-through stream handler.
+ * Native reasoning chunks are properly tagged by parseSSE / model adapters.
  */
 export function ensureThoughtStream(
   sourceStream: ReadableStream<string>,
-  thinkingEnabled: boolean,
+  _thinkingEnabled: boolean,
 ): ReadableStream<string> {
-  if (!thinkingEnabled) return sourceStream;
-
-  return new ReadableStream<string>({
-    async start(controller) {
-      const reader = sourceStream.getReader();
-      let hasDecided = false;
-      let buffer = "";
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          if (!hasDecided) {
-            buffer += value;
-            const trimmed = buffer.trimStart();
-
-            // If we have leading partial tags like "<" or "<thi", wait for more chars unless buffer is long enough
-            if (trimmed.startsWith("<") && !trimmed.includes(">") && trimmed.length < 15) {
-              continue;
-            }
-
-            hasDecided = true;
-            if (/^<\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>/i.test(trimmed)) {
-              // The backend stream already starts with an opening <think> tag!
-              controller.enqueue(buffer);
-            } else {
-              // The backend stream started directly with thought text (e.g. prefilled template).
-              // Prepend <think>\n so the client renders it in ThinkingPanel from the very first token!
-              controller.enqueue("<think>\n" + buffer);
-            }
-            buffer = "";
-          } else {
-            controller.enqueue(value);
-          }
-        }
-
-        // Flush any remaining buffer if stream ended early
-        if (buffer) {
-          if (!hasDecided) {
-            const trimmed = buffer.trimStart();
-            if (/^<\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>/i.test(trimmed)) {
-              controller.enqueue(buffer);
-            } else {
-              controller.enqueue("<think>\n" + buffer);
-            }
-          } else {
-            controller.enqueue(buffer);
-          }
-        }
-        controller.close();
-      } catch (err) {
-        controller.error(err);
-      }
-    },
-  });
+  return sourceStream;
 }
 
 /**

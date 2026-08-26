@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono, Lora } from "next/font/google";
 import { ArtifactProvider } from "@/contexts/ArtifactContext";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { AudioProvider } from "@/contexts/AudioContext";
 import "./globals.css";
 
 const inter = Inter({
@@ -28,7 +29,13 @@ export const metadata: Metadata = {
   description:
     "An AI chat app with a familiar interface, powered by your own API.",
   icons: {
-    icon: "/CogitoIcon-transparant.png",
+    icon: [
+      { url: "/CogitoIcon-transparant.png", type: "image/png" },
+      { url: "/icon.png", type: "image/png" },
+      { url: "/favicon.ico" },
+    ],
+    shortcut: "/CogitoIcon-transparant.png",
+    apple: "/apple-icon.png",
   },
 };
 
@@ -46,7 +53,9 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <AuthProvider>
           <ArtifactProvider>
-            {children}
+            <AudioProvider>
+              {children}
+            </AudioProvider>
           </ArtifactProvider>
         </AuthProvider>
       </body>

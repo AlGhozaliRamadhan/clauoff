@@ -11,6 +11,7 @@ import { ProjectsView } from "./ProjectsView";
 import { AuthModal } from "./AuthModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { useArtifact } from "@/contexts/ArtifactContext";
+import { useAudio } from "@/contexts/AudioContext";
 import { ArtifactViewer } from "./ArtifactViewer";
 import {
   type Conversation,
@@ -25,6 +26,15 @@ import {
   loadActiveProjectId,
   saveActiveProjectId,
 } from "@/lib/project-store";
+import {
+  ensureTreeState,
+  getLinearMessages,
+  appendNewTurn,
+  forkAndEditUserMessage,
+  forkAndRetryAssistantMessage,
+  switchBranch,
+  type MessageNode,
+} from "@/lib/tree-utils";
 import type { Message } from "./ChatThread";
 import type { Project, SourceCitation } from "@/lib/rag/types";
 
@@ -51,6 +61,8 @@ export function AppShell() {
   const [selectedModel, setSelectedModel] = useState("");
   const [streamingConversationIds, setStreamingConversationIds] = useState<string[]>([]);
   const abortControllersRef = useRef<{ [convId: string]: AbortController }>({});
+
+  const { playVoice, enqueueVoiceChunk, stopVoice, voiceSettings } = useAudio();
   // Persistence is debounced so streaming bursts (one setState per token)
   // don't synchronously serialize the whole conversation history to
   // localStorage on every token. The latest state + a final flush on tab
@@ -112,7 +124,17 @@ export function AppShell() {
 
   // Hydrate from localStorage on client mount
   useEffect(() => {
-    const loadedConversations = loadConversations();
+    const rawLoaded = loadConversations();
+    const loadedConversations = rawLoaded.map((c) => {
+      const tree = ensureTreeState(c.messages, c.mapping, c.currentLeafId);
+      const linear = getLinearMessages(tree.mapping, tree.currentLeafId);
+      return {
+        ...c,
+        mapping: tree.mapping,
+        currentLeafId: tree.currentLeafId,
+        messages: linear.length > 0 ? linear : c.messages,
+      };
+    });
     setConversations(loadedConversations);
 
     const pathParts = window.location.pathname.split("/");
@@ -240,463 +262,470 @@ export function AppShell() {
     [effectiveProjectId, activeProjectId],
   );
 
+  const executeStream = useCallback(
+    async ({
+      convId,
+      assistantMsgId,
+      apiMessages,
+      projectId,
+    }: {
+      convId: string;
+      assistantMsgId: string;
+      apiMessages: Array<{ role: "user" | "assistant"; content: string }>;
+      projectId?: string | null;
+    }) => {
+      setStreamingConversationIds((prev) => [...prev, convId]);
+
+      const controller = new AbortController();
+      abortControllersRef.current[convId] = controller;
+
+      const effort = localStorage.getItem("cogito.effort.v2") || "Medium";
+      const thinking = localStorage.getItem("cogito.thinking.v2") !== "false";
+
+      try {
+        let response: Response;
+        let retries = 0;
+        const MAX_RETRIES = 2;
+
+        while (true) {
+          try {
+            response = await fetch("/api/chat", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: selectedModel || undefined,
+                messages: apiMessages,
+                projectId: projectId || undefined,
+                effort,
+                thinking,
+                webSearch: webSearchEnabled,
+              }),
+              signal: controller.signal,
+            });
+
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({}));
+              throw new Error(
+                errorData.error || `Backend error (${response.status})`,
+              );
+            }
+            break;
+          } catch (err) {
+            if ((err as Error).name === "AbortError" || retries >= MAX_RETRIES) {
+              throw err;
+            }
+            retries++;
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+        }
+
+        // Parse citation sources from response header
+        let sources: SourceCitation[] | undefined;
+        const sourcesHeader = response.headers.get("Cogito-Sources");
+        if (sourcesHeader) {
+          try {
+            sources = JSON.parse(decodeURIComponent(sourcesHeader)) as SourceCitation[];
+          } catch {
+            sources = undefined;
+          }
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("No response stream");
+
+        const decoder = new TextDecoder();
+        let accumulated = "";
+        let lastSpokenIndex = 0;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          accumulated += decoder.decode(value, { stream: true });
+
+          // Real-time phrase & sentence voice playback while streaming
+          if (voiceSettings.autoPlay) {
+            // Strip thoughts, artifacts, and code blocks for spoken speech extraction
+            const visibleSpokenText = accumulated
+              .replace(/<\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>[\s\S]*?<\/\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>/gi, "")
+              .replace(/<\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>[\s\S]*$/gi, "")
+              .replace(/<artifact[\s\S]*?<\/artifact>/gi, " ")
+              .replace(/<artifact[\s\S]*$/gi, " ")
+              .replace(/```[\s\S]*?```/gi, " ")
+              .replace(/```[\s\S]*$/gi, " ");
+
+            const unprocessed = visibleSpokenText.slice(lastSpokenIndex);
+            // 1. Punctuation match (. ? ! \n , ; : —)
+            const sentenceMatch = unprocessed.match(/(?:[.!?\n]+(?:\s+|$))|(?:[,;:—–…]\s+)/);
+            if (sentenceMatch && sentenceMatch.index !== undefined) {
+              const sentenceEnd = sentenceMatch.index + sentenceMatch[0].length;
+              const sentence = unprocessed.slice(0, sentenceEnd).trim();
+              if (sentence.length > 0) {
+                enqueueVoiceChunk(sentence, assistantMsgId);
+              }
+              lastSpokenIndex += sentenceEnd;
+            } else if (unprocessed.length >= 35) {
+              // 2. Word count / length threshold fallback
+              const lastSpace = unprocessed.lastIndexOf(" ");
+              if (lastSpace > 15) {
+                const chunk = unprocessed.slice(0, lastSpace).trim();
+                if (chunk.length > 0) {
+                  enqueueVoiceChunk(chunk, assistantMsgId);
+                }
+                lastSpokenIndex += lastSpace + 1;
+              }
+            }
+          }
+
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== convId) return c;
+              const newMapping = c.mapping ? { ...c.mapping } : {};
+              if (newMapping[assistantMsgId]) {
+                newMapping[assistantMsgId] = {
+                  ...newMapping[assistantMsgId],
+                  content: accumulated,
+                  isStreaming: true,
+                  sources: sources ?? newMapping[assistantMsgId].sources,
+                };
+              }
+              const linear = c.currentLeafId
+                ? getLinearMessages(newMapping, c.currentLeafId)
+                : c.messages.map((m) =>
+                    m.id === assistantMsgId
+                      ? { ...m, content: accumulated, isStreaming: true, sources: sources ?? m.sources }
+                      : m,
+                  );
+              return {
+                ...c,
+                updatedAt: Date.now(),
+                mapping: newMapping,
+                messages: linear,
+              };
+            }),
+          );
+        }
+
+        // Mark completion
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== convId) return c;
+            const newMapping = c.mapping ? { ...c.mapping } : {};
+            if (newMapping[assistantMsgId]) {
+              newMapping[assistantMsgId] = {
+                ...newMapping[assistantMsgId],
+                content: accumulated,
+                isStreaming: false,
+                sources: sources ?? newMapping[assistantMsgId].sources,
+              };
+            }
+            const linear = c.currentLeafId
+              ? getLinearMessages(newMapping, c.currentLeafId)
+              : c.messages.map((m) =>
+                  m.id === assistantMsgId
+                    ? { ...m, content: accumulated, isStreaming: false, sources: sources ?? m.sources }
+                    : m,
+                );
+            return {
+              ...c,
+              updatedAt: Date.now(),
+              mapping: newMapping,
+              messages: linear,
+            };
+          }),
+        );
+
+        // Enqueue any remaining tail text after generation finishes
+        if (voiceSettings.autoPlay) {
+          const visibleSpokenText = accumulated
+            .replace(/<\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>[\s\S]*?<\/\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>/gi, "")
+            .replace(/<\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>[\s\S]*$/gi, "")
+            .replace(/<artifact[\s\S]*?<\/artifact>/gi, " ")
+            .replace(/<artifact[\s\S]*$/gi, " ")
+            .replace(/```[\s\S]*?```/gi, " ")
+            .replace(/```[\s\S]*$/gi, " ");
+
+          const remaining = visibleSpokenText.slice(lastSpokenIndex).trim();
+          if (remaining.length > 0) {
+            enqueueVoiceChunk(remaining, assistantMsgId);
+          }
+        }
+      } catch (err) {
+        if ((err as Error).name === "AbortError") {
+          stopVoice();
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== convId) return c;
+              const newMapping = c.mapping ? { ...c.mapping } : {};
+              if (newMapping[assistantMsgId]) {
+                newMapping[assistantMsgId] = {
+                  ...newMapping[assistantMsgId],
+                  isStreaming: false,
+                };
+              }
+              const linear = c.currentLeafId
+                ? getLinearMessages(newMapping, c.currentLeafId)
+                : c.messages.map((m) =>
+                    m.id === assistantMsgId ? { ...m, isStreaming: false } : m,
+                  );
+              return {
+                ...c,
+                updatedAt: Date.now(),
+                mapping: newMapping,
+                messages: linear,
+              };
+            }),
+          );
+        } else {
+          stopVoice();
+          const errorText = `⚠ ${(err as Error).message || "An error occurred. Is your backend running?"}`;
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== convId) return c;
+              const newMapping = c.mapping ? { ...c.mapping } : {};
+              if (newMapping[assistantMsgId]) {
+                newMapping[assistantMsgId] = {
+                  ...newMapping[assistantMsgId],
+                  content: errorText,
+                  isStreaming: false,
+                };
+              }
+              const linear = c.currentLeafId
+                ? getLinearMessages(newMapping, c.currentLeafId)
+                : c.messages.map((m) =>
+                    m.id === assistantMsgId ? { ...m, content: errorText, isStreaming: false } : m,
+                  );
+              return {
+                ...c,
+                updatedAt: Date.now(),
+                mapping: newMapping,
+                messages: linear,
+              };
+            }),
+          );
+        }
+      } finally {
+        delete abortControllersRef.current[convId];
+        setStreamingConversationIds((prev) => prev.filter((id) => id !== convId));
+      }
+    },
+    [selectedModel, webSearchEnabled, voiceSettings.autoPlay, enqueueVoiceChunk, playVoice, stopVoice],
+  );
+
   const handleSend = useCallback(async () => {
     const text = inputValue.trim();
     if (!text || isActiveStreaming) return;
 
-    const userMsg: Message = {
-      id: generateMessageId("user"),
-      role: "user",
-      content: text,
-    };
-
-    const assistantMsg: Message = {
-      id: generateMessageId("assistant"),
-      role: "assistant",
-      content: "",
-      isStreaming: true,
-    };
-
     let convId = activeConversationId;
-    let updatedConversations: Conversation[];
-    const projectIdForConv =
-      activeConversation?.projectId ?? activeProjectId ?? null;
+    let currentMapping: Record<string, MessageNode> = {};
+    let currentLeafId: string | null = null;
+    const now = Date.now();
+    const projectIdForConv = activeConversation?.projectId ?? activeProjectId ?? null;
 
     if (!convId) {
       convId = generateConversationId();
-      const now = Date.now();
+      const tree = ensureTreeState([], {}, null);
+      currentMapping = tree.mapping;
+      currentLeafId = tree.currentLeafId;
+    } else {
+      const conv = conversations.find((c) => c.id === convId);
+      const tree = ensureTreeState(conv?.messages, conv?.mapping, conv?.currentLeafId);
+      currentMapping = tree.mapping;
+      currentLeafId = tree.currentLeafId;
+    }
+
+    const { mapping: newMapping, assistantNode, newLeafId } = appendNewTurn(
+      currentMapping,
+      currentLeafId,
+      text,
+    );
+
+    const linearMessages = getLinearMessages(newMapping, newLeafId);
+
+    if (!activeConversationId) {
       const newConv: Conversation = {
         id: convId,
         title: generateTitle(text),
-        messages: [userMsg, assistantMsg],
+        messages: linearMessages,
+        mapping: newMapping,
+        currentLeafId: newLeafId,
         createdAt: now,
         updatedAt: now,
         projectId: projectIdForConv,
       };
-      updatedConversations = [newConv, ...conversations];
+      setConversations([newConv, ...conversations]);
+      setActiveConversationId(convId);
     } else {
-      updatedConversations = conversations.map((c) =>
-        c.id === convId
-          ? {
-              ...c,
-              messages: [...c.messages, userMsg, assistantMsg],
-              updatedAt: Date.now(),
-            }
-          : c,
-      );
-    }
-
-    setConversations(updatedConversations);
-    setActiveConversationId(convId);
-    setMainView("chat");
-    setInputValue("");
-    setStreamingConversationIds((prev) => [...prev, convId]);
-
-    const currentConv = updatedConversations.find((c) => c.id === convId);
-    const apiMessages = (currentConv?.messages ?? [])
-      .filter((m) => m.content.length > 0)
-      .map((m) => ({ role: m.role, content: m.content }));
-
-    const controller = new AbortController();
-    abortControllersRef.current[convId] = controller;
-
-    const effort = localStorage.getItem("cogito.effort.v2") || "Medium";
-    // Default to ON when unset — matches the ModelSelector UI default. A
-    // mismatch here silently disables the thinking prompt for fresh users.
-    const thinking = localStorage.getItem("cogito.thinking.v2") !== "false";
-
-    try {
-      let response: Response;
-      let retries = 0;
-      const MAX_RETRIES = 2;
-
-      while (true) {
-        try {
-          response = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: selectedModel || undefined,
-              messages: apiMessages,
-              projectId: currentConv?.projectId || undefined,
-              effort,
-              thinking,
-              webSearch: webSearchEnabled,
-            }),
-            signal: controller.signal,
-          });
-
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(
-              errorData.error || `Backend error (${response.status})`,
-            );
-          }
-          
-          break; // Success, exit retry loop
-        } catch (err) {
-          if ((err as Error).name === "AbortError" || retries >= MAX_RETRIES) {
-            throw err;
-          }
-          retries++;
-          // Wait 2 seconds before retrying
-          await new Promise(r => setTimeout(r, 2000));
-        }
-      }
-
-      // Parse citation sources from response header (ADR-0005)
-      let sources: SourceCitation[] | undefined;
-      const sourcesHeader = response.headers.get("Cogito-Sources");
-      if (sourcesHeader) {
-        try {
-          sources = JSON.parse(
-            decodeURIComponent(sourcesHeader),
-          ) as SourceCitation[];
-        } catch {
-          sources = undefined;
-        }
-      }
-
-      // Attach sources as soon as headers arrive (chips wait until !isStreaming)
-      if (sources && sources.length > 0) {
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === convId
-              ? {
-                  ...c,
-                  messages: c.messages.map((m) =>
-                    m.id === assistantMsg.id ? { ...m, sources } : m,
-                  ),
-                }
-              : c,
-          ),
-        );
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response stream");
-
-      const decoder = new TextDecoder();
-      let accumulated = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        accumulated += decoder.decode(value, { stream: true });
-
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === convId
-              ? {
-                  ...c,
-                  updatedAt: Date.now(),
-                  messages: c.messages.map((m) =>
-                    m.id === assistantMsg.id
-                      ? {
-                          ...m,
-                          content: accumulated,
-                          isStreaming: true,
-                          sources: sources ?? m.sources,
-                        }
-                      : m,
-                  ),
-                }
-              : c,
-          ),
-        );
-      }
-
       setConversations((prev) =>
         prev.map((c) =>
           c.id === convId
             ? {
                 ...c,
-                updatedAt: Date.now(),
-                messages: c.messages.map((m) =>
-                  m.id === assistantMsg.id
-                    ? {
-                        ...m,
-                        isStreaming: false,
-                        sources: sources ?? m.sources,
-                      }
-                    : m,
-                ),
+                messages: linearMessages,
+                mapping: newMapping,
+                currentLeafId: newLeafId,
+                updatedAt: now,
               }
             : c,
         ),
       );
-    } catch (err) {
-      if ((err as Error).name === "AbortError") {
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === convId
-              ? {
-                  ...c,
-                  updatedAt: Date.now(),
-                  messages: c.messages.map((m) =>
-                    m.id === assistantMsg.id
-                      ? { ...m, isStreaming: false }
-                      : m,
-                  ),
-                }
-              : c,
-          ),
-        );
-      } else {
-        const errorText = `⚠ ${(err as Error).message || "An error occurred. Is your backend running?"}`;
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === convId
-              ? {
-                  ...c,
-                  updatedAt: Date.now(),
-                  messages: c.messages.map((m) =>
-                    m.id === assistantMsg.id
-                      ? { ...m, content: errorText, isStreaming: false }
-                      : m,
-                  ),
-                }
-              : c,
-          ),
-        );
-      }
-    } finally {
-      delete abortControllersRef.current[convId];
-      setStreamingConversationIds((prev) => prev.filter((id) => id !== convId));
     }
+
+    setMainView("chat");
+    setInputValue("");
+
+    const apiMessages = linearMessages
+      .filter((m) => m.id !== assistantNode.id && m.content.length > 0)
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    executeStream({
+      convId,
+      assistantMsgId: assistantNode.id,
+      apiMessages,
+      projectId: projectIdForConv,
+    });
   }, [
     inputValue,
     isActiveStreaming,
     activeConversationId,
-    activeConversation?.projectId,
+    activeConversation,
     activeProjectId,
     conversations,
-    selectedModel,
-    webSearchEnabled,
+    executeStream,
   ]);
 
-  const handleRetry = useCallback(async () => {
-    if (!activeConversationId || isActiveStreaming) return;
-    const convId = activeConversationId;
-    const currentConv = conversations.find((c) => c.id === convId);
-    if (!currentConv || currentConv.messages.length === 0) return;
+  const handleEditMessage = useCallback(
+    async (userNodeId: string, newContent: string) => {
+      if (!activeConversationId || isActiveStreaming) return;
+      const convId = activeConversationId;
+      const conv = conversations.find((c) => c.id === convId);
+      if (!conv) return;
 
-    const lastMsg = currentConv.messages[currentConv.messages.length - 1];
-    
-    let updatedConversations = conversations;
-    let assistantMsg: Message;
-    
-    if (lastMsg.role === "assistant") {
-      assistantMsg = {
-        ...lastMsg,
-        content: "",
-        isStreaming: true,
-        sources: undefined
-      };
-      
-      updatedConversations = conversations.map(c => 
-        c.id === convId ? {
-          ...c,
-          messages: [...c.messages.slice(0, -1), assistantMsg],
-          updatedAt: Date.now(),
-        } : c
+      const tree = ensureTreeState(conv.messages, conv.mapping, conv.currentLeafId);
+      if (!tree.mapping[userNodeId]) return;
+
+      const { mapping: newMapping, assistantNode, newLeafId } = forkAndEditUserMessage(
+        tree.mapping,
+        userNodeId,
+        newContent,
       );
-    } else {
-      assistantMsg = {
-        id: generateMessageId("assistant"),
-        role: "assistant",
-        content: "",
-        isStreaming: true,
-      };
-      updatedConversations = conversations.map(c => 
-        c.id === convId ? {
-          ...c,
-          messages: [...c.messages, assistantMsg],
-          updatedAt: Date.now(),
-        } : c
-      );
-    }
 
-    setConversations(updatedConversations);
-    setStreamingConversationIds((prev) => [...prev, convId]);
-
-    const updatedConv = updatedConversations.find((c) => c.id === convId);
-    const apiMessages = (updatedConv?.messages ?? [])
-      .filter((m) => m.content.length > 0)
-      .map((m) => ({ role: m.role, content: m.content }));
-
-    const controller = new AbortController();
-    abortControllersRef.current[convId] = controller;
-
-    const effort = localStorage.getItem("cogito.effort.v2") || "Medium";
-    const thinking = localStorage.getItem("cogito.thinking.v2") !== "false";
-
-    try {
-      let response: Response;
-      let retries = 0;
-      const MAX_RETRIES = 2;
-
-      while (true) {
-        try {
-          response = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: selectedModel || undefined,
-              messages: apiMessages,
-              projectId: updatedConv?.projectId || undefined,
-              effort,
-              thinking,
-              webSearch: webSearchEnabled,
-            }),
-            signal: controller.signal,
-          });
-
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(
-              errorData.error || `Backend error (${response.status})`,
-            );
-          }
-          
-          break; // Success, exit retry loop
-        } catch (err) {
-          if ((err as Error).name === "AbortError" || retries >= MAX_RETRIES) {
-            throw err;
-          }
-          retries++;
-          // Wait 2 seconds before retrying
-          await new Promise(r => setTimeout(r, 2000));
-        }
-      }
-
-      let sources: SourceCitation[] | undefined;
-      const sourcesHeader = response.headers.get("Cogito-Sources");
-      if (sourcesHeader) {
-        try {
-          sources = JSON.parse(
-            decodeURIComponent(sourcesHeader),
-          ) as SourceCitation[];
-        } catch {
-          sources = undefined;
-        }
-      }
-
-      if (sources && sources.length > 0) {
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === convId
-              ? {
-                  ...c,
-                  messages: c.messages.map((m) =>
-                    m.id === assistantMsg.id ? { ...m, sources } : m,
-                  ),
-                }
-              : c,
-          ),
-        );
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response stream");
-
-      const decoder = new TextDecoder();
-      let accumulated = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        accumulated += decoder.decode(value, { stream: true });
-
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === convId
-              ? {
-                  ...c,
-                  updatedAt: Date.now(),
-                  messages: c.messages.map((m) =>
-                    m.id === assistantMsg.id
-                      ? {
-                          ...m,
-                          content: accumulated,
-                          isStreaming: true,
-                          sources: sources ?? m.sources,
-                        }
-                      : m,
-                  ),
-                }
-              : c,
-          ),
-        );
-      }
+      const linearMessages = getLinearMessages(newMapping, newLeafId);
 
       setConversations((prev) =>
         prev.map((c) =>
           c.id === convId
             ? {
                 ...c,
+                messages: linearMessages,
+                mapping: newMapping,
+                currentLeafId: newLeafId,
                 updatedAt: Date.now(),
-                messages: c.messages.map((m) =>
-                  m.id === assistantMsg.id
-                    ? {
-                        ...m,
-                        isStreaming: false,
-                        sources: sources ?? m.sources,
-                      }
-                    : m,
-                ),
               }
             : c,
         ),
       );
-    } catch (err) {
-      if ((err as Error).name === "AbortError") {
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === convId
-              ? {
-                  ...c,
-                  updatedAt: Date.now(),
-                  messages: c.messages.map((m) =>
-                    m.id === assistantMsg.id
-                      ? { ...m, isStreaming: false }
-                      : m,
-                  ),
-                }
-              : c,
-          ),
-        );
-      } else {
-        const errorText = `⚠ ${(err as Error).message || "An error occurred. Is your backend running?"}`;
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === convId
-              ? {
-                  ...c,
-                  updatedAt: Date.now(),
-                  messages: c.messages.map((m) =>
-                    m.id === assistantMsg.id
-                      ? { ...m, content: errorText, isStreaming: false }
-                      : m,
-                  ),
-                }
-              : c,
-          ),
-        );
+
+      const apiMessages = linearMessages
+        .filter((m) => m.id !== assistantNode.id && m.content.length > 0)
+        .map((m) => ({ role: m.role, content: m.content }));
+
+      executeStream({
+        convId,
+        assistantMsgId: assistantNode.id,
+        apiMessages,
+        projectId: conv.projectId,
+      });
+    },
+    [activeConversationId, isActiveStreaming, conversations, executeStream],
+  );
+
+  const handleRetryTurn = useCallback(
+    async (assistantNodeId?: string) => {
+      if (!activeConversationId || isActiveStreaming) return;
+      const convId = activeConversationId;
+      const conv = conversations.find((c) => c.id === convId);
+      if (!conv || conv.messages.length === 0) return;
+
+      const tree = ensureTreeState(conv.messages, conv.mapping, conv.currentLeafId);
+
+      // Default to last assistant message in current linear path if none passed
+      let targetId = assistantNodeId;
+      if (!targetId) {
+        for (let i = conv.messages.length - 1; i >= 0; i--) {
+          if (conv.messages[i].role === "assistant") {
+            targetId = conv.messages[i].id;
+            break;
+          }
+        }
       }
-    } finally {
-      delete abortControllersRef.current[convId];
-      setStreamingConversationIds((prev) => prev.filter((id) => id !== convId));
-    }
-  }, [
-    isActiveStreaming,
-    activeConversationId,
-    conversations,
-    selectedModel,
-    webSearchEnabled,
-  ]);
+
+      if (!targetId || !tree.mapping[targetId] || tree.mapping[targetId].role !== "assistant") {
+        return;
+      }
+
+      const { mapping: newMapping, assistantNode, newLeafId } = forkAndRetryAssistantMessage(
+        tree.mapping,
+        targetId,
+      );
+
+      const linearMessages = getLinearMessages(newMapping, newLeafId);
+
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === convId
+            ? {
+                ...c,
+                messages: linearMessages,
+                mapping: newMapping,
+                currentLeafId: newLeafId,
+                updatedAt: Date.now(),
+              }
+            : c,
+        ),
+      );
+
+      const apiMessages = linearMessages
+        .filter((m) => m.id !== assistantNode.id && m.content.length > 0)
+        .map((m) => ({ role: m.role, content: m.content }));
+
+      executeStream({
+        convId,
+        assistantMsgId: assistantNode.id,
+        apiMessages,
+        projectId: conv.projectId,
+      });
+    },
+    [activeConversationId, isActiveStreaming, conversations, executeStream],
+  );
+
+  const handleSwitchVersion = useCallback(
+    (targetNodeId: string) => {
+      if (!activeConversationId) return;
+      const convId = activeConversationId;
+      const conv = conversations.find((c) => c.id === convId);
+      if (!conv) return;
+
+      const tree = ensureTreeState(conv.messages, conv.mapping, conv.currentLeafId);
+      const newLeafId = switchBranch(tree.mapping, targetNodeId);
+      const linearMessages = getLinearMessages(tree.mapping, newLeafId);
+
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === convId
+            ? {
+                ...c,
+                messages: linearMessages,
+                mapping: tree.mapping,
+                currentLeafId: newLeafId,
+                updatedAt: Date.now(),
+              }
+            : c,
+        ),
+      );
+    },
+    [activeConversationId, conversations],
+  );
 
   const handleStop = useCallback(() => {
     if (activeConversationId) {
@@ -858,7 +887,7 @@ export function AppShell() {
         
         <div className="flex-1 flex flex-row min-h-0 overflow-hidden w-full">
           {/* Main Chat/Project Column */}
-          <div className={`flex flex-col min-w-0 transition-all duration-300 ease-in-out ${activeArtifact ? "w-1/2 border-r border-[var(--border-subtle)]" : "w-full"}`}>
+          <div className={`flex flex-col min-w-0 h-full flex-1 transition-all duration-300 ease-in-out ${activeArtifact ? "w-1/2 border-r border-[var(--border-subtle)]" : "w-full"}`}>
             {mainView === "projects" ? (
           <ProjectsView
             onBackToChat={() => setMainView("chat")}
@@ -874,7 +903,14 @@ export function AppShell() {
           />
         ) : (
           <>
-            <ChatThread messages={messages} onRetry={handleRetry} />
+            <ChatThread
+              messages={messages}
+              treeMapping={activeConversation?.mapping}
+              onEditMessage={handleEditMessage}
+              onRetry={handleRetryTurn}
+              onSwitchVersion={handleSwitchVersion}
+              isGenerating={isActiveStreaming}
+            />
 
             <div
               className="flex-shrink-0 px-4 pb-4 pt-2 w-full"

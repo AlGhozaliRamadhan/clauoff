@@ -4,6 +4,7 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import { MessageBubbleUser } from "./MessageBubbleUser";
 import { MessageAssistant } from "./MessageAssistant";
 import { ChevronDownIcon } from "./Icons";
+import { getNodeSiblingInfo, type MessageNode } from "@/lib/tree-utils";
 import type { SourceCitation } from "@/lib/rag/types";
 
 export interface Message {
@@ -14,12 +15,29 @@ export interface Message {
   sources?: SourceCitation[];
 }
 
-interface ChatThreadProps {
-  messages: Message[];
-  onRetry?: () => void;
+export interface VersionInfo {
+  currentIndex: number;
+  total: number;
+  siblings: string[];
 }
 
-export function ChatThread({ messages, onRetry }: ChatThreadProps) {
+interface ChatThreadProps {
+  messages: Message[];
+  treeMapping?: Record<string, MessageNode>;
+  onRetry?: (messageId?: string) => void;
+  onEditMessage?: (messageId: string, newContent: string) => void;
+  onSwitchVersion?: (targetNodeId: string) => void;
+  isGenerating?: boolean;
+}
+
+export function ChatThread({
+  messages,
+  treeMapping,
+  onRetry,
+  onEditMessage,
+  onSwitchVersion,
+  isGenerating = false,
+}: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
@@ -60,16 +78,30 @@ export function ChatThread({ messages, onRetry }: ChatThreadProps) {
       >
         {messages.map((msg, index) => {
           const isLastMessage = index === messages.length - 1;
+          const versionInfo: VersionInfo | undefined = treeMapping
+            ? getNodeSiblingInfo(treeMapping, msg.id)
+            : undefined;
 
           return msg.role === "user" ? (
-            <MessageBubbleUser key={msg.id} content={msg.content} />
+            <MessageBubbleUser
+              key={msg.id}
+              messageId={msg.id}
+              content={msg.content}
+              versionInfo={versionInfo}
+              onEdit={onEditMessage}
+              onSwitchVersion={onSwitchVersion}
+              disabled={isGenerating}
+            />
           ) : (
             <MessageAssistant
               key={msg.id}
+              messageId={msg.id}
               content={msg.content}
               isStreaming={msg.isStreaming}
               sources={msg.sources}
-              onRetry={isLastMessage ? onRetry : undefined}
+              versionInfo={versionInfo}
+              onSwitchVersion={onSwitchVersion}
+              onRetry={onRetry ? () => onRetry(msg.id) : undefined}
             />
           );
         })}

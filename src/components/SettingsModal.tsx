@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { SettingsIcon, SearchIcon, ShieldCheckIcon, DatabaseIcon, UserPlusIcon, LockIcon, CheckIcon } from "./Icons";
+import { SettingsIcon, SearchIcon, ShieldCheckIcon, DatabaseIcon, UserPlusIcon, LockIcon, CheckIcon, SpeakerWaveIcon, SpeakerStopIcon } from "./Icons";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAudio } from "@/contexts/AudioContext";
 import { AVATAR_COLORS } from "@/lib/auth/types";
 
 interface SettingsModalProps {
@@ -172,6 +173,19 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const [showWorkDropdown, setShowWorkDropdown] = useState<boolean>(false);
   const [showFontDropdown, setShowFontDropdown] = useState<boolean>(false);
+  const [showVoiceDropdown, setShowVoiceDropdown] = useState<boolean>(false);
+
+  // Audio Context
+  const {
+    voiceSettings,
+    updateVoiceSettings,
+    availableVoices,
+    playVoice,
+    stopVoice,
+    isPlaying,
+    isGenerating,
+    activeId,
+  } = useAudio();
 
   // API tab state — multi-profile
   const [apiProfiles, setApiProfiles] = useState<LocalApiProfile[]>([]);
@@ -1165,6 +1179,225 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   )}
                 </div>
               </div>
+
+              {/* Cogito TTS Header */}
+              <div className="mt-2">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-semibold text-[var(--text-primary)] mb-1 flex items-center gap-2">
+                    Cogito TTS
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-[rgba(201,96,63,0.15)] text-[var(--accent-primary)] font-semibold uppercase tracking-wider">Fast Neural</span>
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const currentVoice = availableVoices.find(v => v.id === voiceSettings.voiceId) || availableVoices[0];
+                      const testText = currentVoice?.previewText || "Cogito online. Distant transmission established.";
+                      if (isPlaying && activeId === "settings-preview") {
+                        stopVoice();
+                      } else {
+                        playVoice(testText, "settings-preview");
+                      }
+                    }}
+                    disabled={isGenerating && activeId !== "settings-preview"}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all border ${
+                      isPlaying && activeId === "settings-preview"
+                        ? "text-[var(--accent-primary)] bg-[rgba(201,96,63,0.12)] border-[var(--accent-primary)]"
+                        : isGenerating && activeId === "settings-preview"
+                        ? "text-[var(--accent-primary)] bg-[rgba(201,96,63,0.08)] border-[var(--accent-primary)] animate-pulse"
+                        : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)] hover:bg-[rgba(255,255,255,0.04)]"
+                    }`}
+                  >
+                    {isGenerating && activeId === "settings-preview" ? (
+                      <>
+                        <svg className="animate-spin" width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+                        <span>Synthesizing…</span>
+                      </>
+                    ) : isPlaying && activeId === "settings-preview" ? (
+                      <>
+                        <SpeakerStopIcon size={13} />
+                        <span>Stop Preview</span>
+                      </>
+                    ) : (
+                      <>
+                        <SpeakerWaveIcon size={13} />
+                        <span>Test Voice</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="w-full border-b border-[var(--border-subtle)] my-2" />
+              </div>
+
+              {/* Voice Engine row */}
+              <div className="flex items-center justify-between py-1">
+                <div className="flex flex-col">
+                  <span className="text-xs-ui font-medium text-[var(--text-primary)]">Voice engine</span>
+                  <span className="text-[11px] text-[var(--text-secondary)] opacity-75 mt-0.5">
+                    {voiceSettings.engine === "neural" ? "Kokoro 82M server neural model" : "Instant native speech (0ms latency)"}
+                  </span>
+                </div>
+                <div
+                  className="flex rounded-xl p-0.5 border"
+                  style={{
+                    background: "rgba(0,0,0,0.15)",
+                    borderColor: "var(--border-subtle)",
+                  }}
+                >
+                  {[
+                    { label: "Instant (0ms)", value: "instant" },
+                    { label: "Kokoro Neural", value: "neural" },
+                  ].map(item => (
+                    <button
+                      key={item.value}
+                      type="button"
+                      onClick={() => updateVoiceSettings({ engine: item.value as "instant" | "neural" })}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                        (voiceSettings.engine || "instant") === item.value
+                          ? "bg-[rgba(255,255,255,0.08)] text-[var(--text-primary)] shadow-sm font-bold"
+                          : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Voice Persona row */}
+              <div className="flex items-center justify-between py-1 relative">
+                <div className="flex flex-col">
+                  <span className="text-xs-ui font-medium text-[var(--text-primary)]">Voice persona</span>
+                  <span className="text-[11px] text-[var(--text-secondary)] opacity-75 mt-0.5">
+                    {availableVoices.find(v => v.id === voiceSettings.voiceId)?.description || "Neural voice"}
+                  </span>
+                </div>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowVoiceDropdown(!showVoiceDropdown)}
+                    className="w-64 px-3 py-1.5 rounded-lg text-xs-ui bg-[rgba(0,0,0,0.15)] border border-[var(--border-subtle)] hover:bg-[rgba(255,255,255,0.02)] transition-colors text-[var(--text-primary)] text-left flex justify-between items-center cursor-pointer"
+                  >
+                    <span>{availableVoices.find(v => v.id === voiceSettings.voiceId)?.name || voiceSettings.voiceId}</span>
+                    <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-60">
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+
+                  {showVoiceDropdown && (
+                    <div
+                      className="absolute right-0 top-full mt-1.5 w-72 max-h-60 overflow-y-auto rounded-xl py-1 z-50 flex flex-col border shadow-xl"
+                      style={{
+                        background: "var(--surface-raised)",
+                        borderColor: "var(--border-subtle)",
+                      }}
+                    >
+                      {availableVoices.map(v => (
+                        <button
+                          key={v.id}
+                          onClick={() => {
+                            updateVoiceSettings({ voiceId: v.id });
+                            setShowVoiceDropdown(false);
+                          }}
+                          className={`px-3.5 py-2 text-xs-ui text-left hover:bg-[rgba(255,255,255,0.04)] cursor-pointer flex flex-col gap-0.5 transition-colors ${
+                            voiceSettings.voiceId === v.id ? "bg-[rgba(201,96,63,0.1)] text-[var(--accent-primary)] font-semibold" : "text-[var(--text-primary)]"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span>{v.name}</span>
+                            {v.accent && <span className="text-[10px] opacity-60 font-mono">{v.accent}</span>}
+                          </div>
+                          <span className="text-[10px] text-[var(--text-secondary)] opacity-80 font-normal line-clamp-1">
+                            {v.description}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Transmission FX toggle */}
+              <div className="flex items-start justify-between py-1 gap-4">
+                <div className="flex flex-col flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs-ui font-medium text-[var(--text-primary)]">Transmission FX</span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-[rgba(201,96,63,0.15)] text-[var(--accent-primary)] font-semibold">COGITO</span>
+                  </div>
+                  <span className="text-[11px] text-[var(--text-secondary)] opacity-75 mt-0.5 leading-normal">
+                    Applies vintage broadcast resonance, saturation, and subtle static bed.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => updateVoiceSettings({ fxEnabled: !voiceSettings.fxEnabled })}
+                  className={`w-9 h-5 flex items-center rounded-full p-0.5 cursor-pointer transition-colors duration-200 flex-shrink-0 mt-0.5 ${
+                    voiceSettings.fxEnabled ? "bg-[var(--accent-primary)]" : "bg-neutral-600"
+                  }`}
+                  aria-label="Toggle Transmission FX"
+                >
+                  <div
+                    className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ${
+                      voiceSettings.fxEnabled ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Speed selector */}
+              <div className="flex items-center justify-between py-1">
+                <span className="text-xs-ui font-medium text-[var(--text-primary)]">Speed</span>
+                <div
+                  className="flex rounded-xl p-0.5 border"
+                  style={{
+                    background: "rgba(0,0,0,0.15)",
+                    borderColor: "var(--border-subtle)",
+                  }}
+                >
+                  {[
+                    { label: "0.75x", value: 0.75 },
+                    { label: "0.85x", value: 0.85 },
+                    { label: "1.0x", value: 1.0 },
+                    { label: "1.15x", value: 1.15 },
+                  ].map(item => (
+                    <button
+                      key={item.value}
+                      type="button"
+                      onClick={() => updateVoiceSettings({ speed: item.value })}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                        voiceSettings.speed === item.value
+                          ? "bg-[rgba(255,255,255,0.08)] text-[var(--text-primary)] shadow-sm font-bold"
+                          : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Read aloud toggle */}
+              <div className="flex items-start justify-between py-1 gap-4">
+                <div className="flex flex-col flex-1">
+                  <span className="text-xs-ui font-medium text-[var(--text-primary)]">Read aloud</span>
+                  <span className="text-[11px] text-[var(--text-secondary)] opacity-75 mt-0.5 leading-normal">
+                    Automatically speak new responses.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => updateVoiceSettings({ autoPlay: !voiceSettings.autoPlay })}
+                  className={`w-9 h-5 flex items-center rounded-full p-0.5 cursor-pointer transition-colors duration-200 flex-shrink-0 mt-0.5 ${
+                    voiceSettings.autoPlay ? "bg-[var(--accent-primary)]" : "bg-neutral-600"
+                  }`}
+                  aria-label="Toggle Read aloud"
+                >
+                  <div
+                    className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ${
+                      voiceSettings.autoPlay ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+
             </div>
           ) : activeTab === "privacy" ? (
             <div className="flex flex-col gap-6 max-w-2xl mt-2 pr-2">

@@ -79,48 +79,50 @@ export function EmptyState({ onSuggestionClick, composer }: EmptyStateProps) {
   ];
 
   return (
-    <div className="flex-1 flex flex-col items-center pt-[18vh] pb-12 px-4 w-full max-w-[640px] mx-auto">
-      {/* Greeting */}
-      <div className="flex items-center gap-2.5 mb-6">
-        <CogitoMark size={28} className="opacity-95 flex-shrink-0" />
-        <h1
-          style={{
-            fontFamily: "var(--font-display)",
-            color: "var(--text-primary)",
-            fontWeight: 400,
-            lineHeight: 1.2,
-            fontSize: "1.75rem",
-          }}
-        >
-          {greeting}
-        </h1>
-      </div>
-
-      {/* Composer container (rendered in the middle) */}
-      {composer && (
-        <div className="w-full mb-6">
-          {composer}
-        </div>
-      )}
-
-      {/* Suggestion pills */}
-      <div className="flex flex-wrap gap-2 justify-center">
-        {suggestions.map((s) => (
-          <button
-            key={s.label}
-            onClick={() => onSuggestionClick?.(s.label)}
-            className="flex items-center gap-2 px-4 py-2 rounded-full border transition-colors duration-150 cursor-pointer hover:bg-[var(--border-subtle)]"
+    <div className="flex-1 flex flex-col items-center justify-center min-h-0 w-full px-4 py-6 overflow-y-auto">
+      <div className="w-full max-w-[680px] flex flex-col items-center -mt-8 sm:-mt-14">
+        {/* Greeting */}
+        <div className="flex items-center gap-2.5 mb-5">
+          <CogitoMark size={28} className="opacity-95 flex-shrink-0" />
+          <h1
             style={{
-              borderColor: "var(--border-subtle)",
-              fontFamily: "var(--font-ui)",
-              fontSize: "var(--text-sm)",
+              fontFamily: "var(--font-display)",
               color: "var(--text-primary)",
+              fontWeight: 400,
+              lineHeight: 1.2,
+              fontSize: "1.85rem",
             }}
           >
-            <span>{s.icon}</span>
-            <span className="font-normal">{s.label}</span>
-          </button>
-        ))}
+            {greeting}
+          </h1>
+        </div>
+
+        {/* Composer container (rendered in the center) */}
+        {composer && (
+          <div className="w-full mb-5">
+            {composer}
+          </div>
+        )}
+
+        {/* Suggestion pills */}
+        <div className="flex flex-wrap gap-2 justify-center w-full">
+          {suggestions.map((s) => (
+            <button
+              key={s.label}
+              onClick={() => onSuggestionClick?.(s.label)}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full border transition-all duration-150 cursor-pointer hover:bg-[var(--surface-hover)] bg-[var(--surface-raised)] hover:border-[var(--border-strong)] shadow-xs"
+              style={{
+                borderColor: "var(--border-subtle)",
+                fontFamily: "var(--font-ui)",
+                fontSize: "var(--text-xs)",
+                color: "var(--text-primary)",
+              }}
+            >
+              <span>{s.icon}</span>
+              <span className="font-normal">{s.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
