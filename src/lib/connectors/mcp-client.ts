@@ -25,21 +25,50 @@ interface JsonRpcResponse {
 }
 
 function validateHttpUrl(rawUrl: string): string {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    throw new Error('MCP endpoint URL is missing or invalid.');
+  }
+
   let parsed: URL;
   try {
-    parsed = new URL(rawUrl);
+    parsed = new URL(rawUrl.trim());
   } catch {
     throw new Error(`Invalid MCP endpoint URL: "${rawUrl}"`);
   }
+
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error(`Invalid protocol "${parsed.protocol}" in MCP endpoint URL. Only http: and https: are allowed.`);
   }
-  return parsed.toString();
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (!/^[a-z0-9.\-_]+$/.test(hostname)) {
+    throw new Error(`Invalid hostname "${parsed.hostname}" in MCP endpoint URL.`);
+  }
+
+  return parsed.href;
 }
 
-function getSafeTimeout(timeoutMs?: number, defaultMs: number = 30000): number {
-  return Math.min(Math.max(1000, Number(timeoutMs) || defaultMs), 120000);
+function getSafeTimeout(timeoutMs?: unknown, defaultMs: number = 30000): number {
+  if (typeof timeoutMs === 'number' && Number.isFinite(timeoutMs)) {
+    if (timeoutMs >= 1000 && timeoutMs <= 120000) {
+      return Math.floor(timeoutMs);
+    }
+  }
+  return defaultMs;
 }
+
+const STANDARD_BINARIES: Record<string, string> = {
+  npx: process.platform === 'win32' ? 'npx.cmd' : 'npx',
+  npm: process.platform === 'win32' ? 'npm.cmd' : 'npm',
+  node: process.platform === 'win32' ? 'node.exe' : 'node',
+  python: process.platform === 'win32' ? 'python.exe' : 'python',
+  python3: process.platform === 'win32' ? 'python3.exe' : 'python3',
+  uvx: process.platform === 'win32' ? 'uvx.cmd' : 'uvx',
+  uv: process.platform === 'win32' ? 'uv.exe' : 'uv',
+  docker: process.platform === 'win32' ? 'docker.exe' : 'docker',
+  deno: process.platform === 'win32' ? 'deno.exe' : 'deno',
+  bun: process.platform === 'win32' ? 'bun.exe' : 'bun',
+};
 
 /**
  * Executes a single MCP JSON-RPC exchange over stdio with timeout guard.
@@ -74,9 +103,10 @@ export async function executeMcpStdioSession<T>(
       ...env,
     };
 
-    let execCommand = cleanCommand;
+    const lowerCmd = cleanCommand.toLowerCase();
+    let execCommand = STANDARD_BINARIES[lowerCmd] || cleanCommand;
     if (process.platform === 'win32' && !execCommand.toLowerCase().endsWith('.cmd') && !execCommand.toLowerCase().endsWith('.exe')) {
-      if (['npx', 'npm', 'yarn', 'pnpm', 'corepack'].includes(execCommand.toLowerCase())) {
+      if (['npx', 'npm', 'yarn', 'pnpm', 'corepack'].includes(lowerCmd)) {
         execCommand = `${execCommand}.cmd`;
       }
     }
@@ -101,6 +131,27 @@ export async function executeMcpStdioSession<T>(
     const stderrStream = proc.stderr;
 
     let buffer = '';
+    let stderrBuffer = '';
+
+    const cleanup = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      try {
+        if (!proc.killed) {
+          proc.kill('SIGTERM');
+        }
+      } catch {
+        // ignore kill error
+      }
+    };
+
+    const timerDuration = safeTimeoutMs >= 1000 && safeTimeoutMs <= 120000 ? safeTimeoutMs : 30000;
+    timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`MCP process timed out after ${timerDuration}ms. Stderr: ${stderrBuffer.slice(-300)}`));
+    }, timerDuration);
 
     stdoutStream.on('data', (chunk: Buffer) => {
       buffer += chunk.toString('utf-8');
@@ -129,26 +180,9 @@ export async function executeMcpStdioSession<T>(
       }
     });
 
-    let stderrBuffer = '';
     stderrStream.on('data', (chunk: Buffer) => {
       stderrBuffer += chunk.toString('utf-8');
     });
-
-    const cleanup = () => {
-      if (timer) clearTimeout(timer);
-      try {
-        if (!proc.killed) {
-          proc.kill('SIGTERM');
-        }
-      } catch {
-        // ignore kill error
-      }
-    };
-
-    timer = setTimeout(() => {
-      cleanup();
-      reject(new Error(`MCP process timed out after ${safeTimeoutMs}ms. Stderr: ${stderrBuffer.slice(-300)}`));
-    }, safeTimeoutMs);
 
     proc.on('error', (err) => {
       cleanup();

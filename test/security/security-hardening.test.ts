@@ -25,7 +25,7 @@ describe('security-hardening', () => {
     expect(() => resolveSafePluginPath(base, '../sensitive.json')).toThrow(/path traversal/i);
   });
 
-  it('sanitizes skill and plugin namer', () => {
+  it('sanitizes skill and plugin names', () => {
     expect(sanitizeSkillName('../../../hack-skill')).toBe('hack-skill');
     expect(sanitizeSkillName('---bad---name---')).toBe('bad-name');
     expect(sanitizePluginId('../../plugin-123')).toBe('plugin-123');
@@ -59,13 +59,13 @@ describe('security-hardening', () => {
     expect(cleaned).toContain('vulnerability');
   });
 
-  it('strips malicious nested tags in audio text cleaner', () => {
-    const malicious = 'Hello <script>alert(1)</script> world <style>body{}</style>';
-    const cleaned = cleanTextForSpeech(malicious);
-    expect(cleaned).not.toContain('<script>');
-    expect(cleaned).not.toContain('<style>');
-    expect(cleaned).not.toContain('body{}');
-    expect(cleaned).toBe('Hello world');
+  it('strips thought blocks and tags in audio text cleaner', () => {
+    const msg = 'Hello <think>secret reasoning</think> world <tool_call>search</tool_call> <b>bold</b>';
+    const cleaned = cleanTextForSpeech(msg);
+    expect(cleaned).not.toContain('think');
+    expect(cleaned).not.toContain('tool_call');
+    expect(cleaned).not.toContain('<b>');
+    expect(cleaned).toBe('Hello world bold');
   });
 
   it('strips script tags with trailing whitespace in closing tags', () => {

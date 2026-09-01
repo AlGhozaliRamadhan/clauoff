@@ -378,23 +378,17 @@ export function htmlToReadableMarkdown(html: string): string {
     html.match(/<div[^>]*class="[^"]*(?:article-content|post-content|main-content|entry-content)[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
     html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
 
-  let targetHtml = mainMatch ? mainMatch[1] : html;
+  const targetHtml = mainMatch ? mainMatch[1] : html;
 
-  let prev = "";
-  do {
-    prev = targetHtml;
-    targetHtml = targetHtml
-      .replace(/<script\b[^<]*(?:(?!<\/script\s*>)<[^<]*)*<\/script\s*>/gi, "")
-      .replace(/<style\b[^<]*(?:(?!<\/style\s*>)<[^<]*)*<\/style\s*>/gi, "")
-      .replace(/<svg\b[^<]*(?:(?!<\/svg\s*>)<[^<]*)*<\/svg\s*>/gi, "")
-      .replace(/<nav\b[^<]*(?:(?!<\/nav\s*>)<[^<]*)*<\/nav\s*>/gi, "")
-      .replace(/<header\b[^<]*(?:(?!<\/header\s*>)<[^<]*)*<\/header\s*>/gi, "")
-      .replace(/<footer\b[^<]*(?:(?!<\/footer\s*>)<[^<]*)*<\/footer\s*>/gi, "")
-      .replace(/<aside\b[^<]*(?:(?!<\/aside\s*>)<[^<]*)*<\/aside\s*>/gi, "")
-      .replace(/<table\b[^>]*class="[^"]*infobox[^"]*"[\s\S]*?<\/table\s*>/gi, "");
-  } while (targetHtml !== prev);
-
-  let md = targetHtml
+  const stripped = targetHtml
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, "")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi, "")
+    .replace(/<svg\b[^>]*>[\s\S]*?<\/svg[^>]*>/gi, "")
+    .replace(/<nav\b[^>]*>[\s\S]*?<\/nav[^>]*>/gi, "")
+    .replace(/<header\b[^>]*>[\s\S]*?<\/header[^>]*>/gi, "")
+    .replace(/<footer\b[^>]*>[\s\S]*?<\/footer[^>]*>/gi, "")
+    .replace(/<aside\b[^>]*>[\s\S]*?<\/aside[^>]*>/gi, "")
+    .replace(/<table\b[^>]*class="[^"]*infobox[^"]*"[\s\S]*?<\/table[^>]*>/gi, "")
     .replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, "\n# $1\n")
     .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, "\n## $1\n")
     .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, "\n### $1\n")
@@ -402,14 +396,10 @@ export function htmlToReadableMarkdown(html: string): string {
     .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, "\n$1\n")
     .replace(/<pre[^>]*><code>([\s\S]*?)<\/code><\/pre>/gi, "\n```\n$1\n```\n")
     .replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, "`$1`")
-    .replace(/<br\s*\/?>/gi, "\n");
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "");
 
-  do {
-    prev = md;
-    md = md.replace(/<[^>]*>/g, "");
-  } while (md !== prev);
-
-  return decodeHtmlEntities(md)
+  return decodeHtmlEntities(stripped)
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
@@ -492,17 +482,12 @@ export async function webSearch(
 /* ─── Utilities ───────────────────────────────────────────────────── */
 
 function stripHtml(html: string): string {
-  let text = html;
-  let prev = "";
-  do {
-    prev = text;
-    text = text
-      .replace(/<script\b[^<]*(?:(?!<\/script\s*>)<[^<]*)*<\/script\s*>/gi, "")
-      .replace(/<style\b[^<]*(?:(?!<\/style\s*>)<[^<]*)*<\/style\s*>/gi, "")
-      .replace(/<[^>]*>/g, "");
-  } while (text !== prev);
+  const stripped = html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, "")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi, "")
+    .replace(/<[^>]+>/g, "");
 
-  return decodeHtmlEntities(text).replace(/\s+/g, " ").trim();
+  return decodeHtmlEntities(stripped).replace(/\s+/g, " ").trim();
 }
 
 export function yearSpecificQuery(query: string): string | null {

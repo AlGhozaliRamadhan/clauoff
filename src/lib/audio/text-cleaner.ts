@@ -10,22 +10,15 @@ export function cleanTextForSpeech(rawText: string): string {
 
   let text = rawText;
 
-  // 1. Strip thought and internal monologue blocks, scripts, and styles
-  let prevBlocks = "";
-  do {
-    prevBlocks = text;
-    text = text
-      .replace(/<script\b[\s\S]*?<\/script\s*>/gi, "")
-      .replace(/<style\b[\s\S]*?<\/style\s*>/gi, "")
-      .replace(/<\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>[\s\S]*?<\/\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>/gi, "")
-      .replace(/<confidence>[\s\S]*?<\/confidence>/gi, "")
-      .replace(/<tool_call[\s\S]*?<\/tool_call>/gi, "")
-      .replace(/<tool_response[\s\S]*?<\/tool_response>/gi, "")
-      .replace(/<tool_results[\s\S]*?<\/tool_results>/gi, "")
-      .replace(/<action[^>]*>[\s\S]*?<\/action>/gi, "")
-      .replace(/<step(?:>|\s[^>]*>)[\s\S]*?<\/step>/gi, "")
-      .replace(/<verification(?:>|\s[^>]*>)[\s\S]*?<\/verification>/gi, "");
-  } while (text !== prevBlocks);
+  // 1. Strip thought and internal monologue blocks
+  text = text.replace(/<\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>[\s\S]*?<\/\s*(?:\|)?(?:thought|think|thinking)\b[^>]*>/gi, "");
+  text = text.replace(/<confidence>[\s\S]*?<\/confidence>/gi, "");
+  text = text.replace(/<tool_call[\s\S]*?<\/tool_call>/gi, "");
+  text = text.replace(/<tool_response[\s\S]*?<\/tool_response>/gi, "");
+  text = text.replace(/<tool_results[\s\S]*?<\/tool_results>/gi, "");
+  text = text.replace(/<action[^>]*>[\s\S]*?<\/action>/gi, "");
+  text = text.replace(/<step(?:>|\s[^>]*>)[\s\S]*?<\/step>/gi, "");
+  text = text.replace(/<verification(?:>|\s[^>]*>)[\s\S]*?<\/verification>/gi, "");
 
   // 2. Handle Artifacts: replace with natural speech marker
   text = text.replace(/<(?:antA|a)rtifact\b[^>]*>[\s\S]*?<\/(?:antA|a)rtifact>/gi, " Artifact code omitted. ");
@@ -48,13 +41,8 @@ export function cleanTextForSpeech(rawText: string): string {
   text = text.replace(/_{1,3}(.*?)_{1,3}/g, "$1");
   text = text.replace(/~~(.*?)~~/g, "$1");
 
-  // 8. Strip HTML tags iteratively until convergence
-  let prevHtml = "";
-  do {
-    prevHtml = text;
-    text = text.replace(/<[^>]*>/g, "");
-  } while (text !== prevHtml);
-  text = text.replace(/[<>]/g, "");
+  // 8. Strip HTML tags
+  text = text.replace(/<[^>]+>/g, "");
 
   // 9. Strip raw URLs
   text = text.replace(/https?:\/\/\S+/g, " link ");
