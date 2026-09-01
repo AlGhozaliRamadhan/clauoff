@@ -41,8 +41,8 @@ export function cleanTextForSpeech(rawText: string): string {
   text = text.replace(/_{1,3}(.*?)_{1,3}/g, "$1");
   text = text.replace(/~~(.*?)~~/g, "$1");
 
-  // 8. Strip HTML tags
-  text = text.replace(/<[^>]+>/g, "");
+  // 8. Strip HTML tags and remove any leftover angle brackets
+  text = text.replace(/<[^>]+>/g, " ").replace(/[<>]/g, "");
 
   // 9. Strip raw URLs
   text = text.replace(/https?:\/\/\S+/g, " link ");

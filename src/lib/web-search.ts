@@ -370,25 +370,49 @@ function decodeHtmlEntities(text: string): string {
   });
 }
 
-export function htmlToReadableMarkdown(html: string): string {
-  const mainMatch =
-    html.match(/<main[^>]*>([\s\S]*?)<\/main>/i) ||
-    html.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
-    html.match(/<div[^>]*id="mw-content-text"[^>]*>([\s\S]*?)<\/div>\s*<div[^>]*id="catlinks"/i) ||
-    html.match(/<div[^>]*class="[^"]*(?:article-content|post-content|main-content|entry-content)[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-    html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+function removeTagBlocks(html: string, tagName: string): string {
+  const openPrefix = `<${tagName.toLowerCase()}`;
+  const closePrefix = `</${tagName.toLowerCase()}`;
+  let result = "";
+  let currentIndex = 0;
+  const lower = html.toLowerCase();
 
-  const targetHtml = mainMatch ? mainMatch[1] : html;
+  while (currentIndex < html.length) {
+    const openIndex = lower.indexOf(openPrefix, currentIndex);
+    if (openIndex === -1) {
+      result += html.slice(currentIndex);
+      break;
+    }
+    result += html.slice(currentIndex, openIndex);
+    const closeIndex = lower.indexOf(closePrefix, openIndex);
+    if (closeIndex === -1) {
+      break;
+    }
+    const endTagIndex = lower.indexOf(">", closeIndex);
+    if (endTagIndex === -1) {
+      break;
+    }
+    currentIndex = endTagIndex + 1;
+  }
+  return result;
+}
+
+export function htmlToReadableMarkdown(html: string): string {
+  let cleaned = html;
+  for (const tag of ["script", "style", "svg", "nav", "header", "footer", "aside", "noscript"]) {
+    cleaned = removeTagBlocks(cleaned, tag);
+  }
+
+  const mainMatch =
+    cleaned.match(/<main[^>]*>([\s\S]*?)<\/main>/i) ||
+    cleaned.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
+    cleaned.match(/<div[^>]*id="mw-content-text"[^>]*>([\s\S]*?)<\/div>\s*<div[^>]*id="catlinks"/i) ||
+    cleaned.match(/<div[^>]*class="[^"]*(?:article-content|post-content|main-content|entry-content)[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+    cleaned.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+
+  const targetHtml = mainMatch ? mainMatch[1] : cleaned;
 
   const stripped = targetHtml
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, "")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi, "")
-    .replace(/<svg\b[^>]*>[\s\S]*?<\/svg[^>]*>/gi, "")
-    .replace(/<nav\b[^>]*>[\s\S]*?<\/nav[^>]*>/gi, "")
-    .replace(/<header\b[^>]*>[\s\S]*?<\/header[^>]*>/gi, "")
-    .replace(/<footer\b[^>]*>[\s\S]*?<\/footer[^>]*>/gi, "")
-    .replace(/<aside\b[^>]*>[\s\S]*?<\/aside[^>]*>/gi, "")
-    .replace(/<table\b[^>]*class="[^"]*infobox[^"]*"[\s\S]*?<\/table[^>]*>/gi, "")
     .replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, "\n# $1\n")
     .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, "\n## $1\n")
     .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, "\n### $1\n")
@@ -397,7 +421,8 @@ export function htmlToReadableMarkdown(html: string): string {
     .replace(/<pre[^>]*><code>([\s\S]*?)<\/code><\/pre>/gi, "\n```\n$1\n```\n")
     .replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, "`$1`")
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "");
+    .replace(/<[^>]+>/g, "")
+    .replace(/[<>]/g, "");
 
   return decodeHtmlEntities(stripped)
     .split("\n")
@@ -482,11 +507,11 @@ export async function webSearch(
 /* ─── Utilities ───────────────────────────────────────────────────── */
 
 function stripHtml(html: string): string {
-  const stripped = html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, "")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi, "")
-    .replace(/<[^>]+>/g, "");
-
+  let cleaned = html;
+  for (const tag of ["script", "style", "svg", "noscript"]) {
+    cleaned = removeTagBlocks(cleaned, tag);
+  }
+  const stripped = cleaned.replace(/<[^>]+>/g, " ").replace(/[<>]/g, "");
   return decodeHtmlEntities(stripped).replace(/\s+/g, " ").trim();
 }
 

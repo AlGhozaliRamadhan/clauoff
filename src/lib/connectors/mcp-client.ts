@@ -40,12 +40,13 @@ function validateHttpUrl(rawUrl: string): string {
     throw new Error(`Invalid protocol "${parsed.protocol}" in MCP endpoint URL. Only http: and https: are allowed.`);
   }
 
-  const hostname = parsed.hostname.toLowerCase();
-  if (!/^[a-z0-9.\-_]+$/.test(hostname)) {
-    throw new Error(`Invalid hostname "${parsed.hostname}" in MCP endpoint URL.`);
+  const hostMatch = parsed.hostname.match(/^[a-zA-Z0-9.\-_]+$/);
+  if (!hostMatch) {
+    throw new Error(`Invalid hostname in MCP endpoint URL.`);
   }
 
-  return parsed.href;
+  const portPart = parsed.port ? `:${parsed.port}` : '';
+  return `${parsed.protocol}//${hostMatch[0]}${portPart}${parsed.pathname}${parsed.search}`;
 }
 
 function getSafeTimeout(timeoutMs?: unknown, defaultMs: number = 30000): number {
@@ -70,6 +71,22 @@ const STANDARD_BINARIES: Record<string, string> = {
   bun: process.platform === 'win32' ? 'bun.exe' : 'bun',
 };
 
+function getSafeExecutable(command: string): string {
+  const clean = String(command).trim().toLowerCase();
+  if (STANDARD_BINARIES[clean]) {
+    return STANDARD_BINARIES[clean];
+  }
+  const match = clean.match(/^[a-zA-Z0-9_\-]+$/);
+  if (!match) {
+    throw new Error(`MCP executable command "${command}" is invalid.`);
+  }
+  const safeName = match[0];
+  if (process.platform === 'win32') {
+    return `${safeName}.cmd`;
+  }
+  return safeName;
+}
+
 /**
  * Executes a single MCP JSON-RPC exchange over stdio with timeout guard.
  */
@@ -84,11 +101,7 @@ export async function executeMcpStdioSession<T>(
     throw new Error(`MCP Stdio connector "${connector.name}" has no command specified.`);
   }
 
-  const cleanCommand = String(command).trim();
-  if (!cleanCommand || !/^[a-zA-Z0-9_\-./\\:]+$/.test(cleanCommand)) {
-    throw new Error(`Invalid or unsafe MCP command: "${command}"`);
-  }
-
+  const execCommand = getSafeExecutable(command);
   const safeArgs = Array.isArray(args) ? args.map((a) => String(a)) : [];
   const safeTimeoutMs = getSafeTimeout(timeoutMs, 30000);
 
@@ -102,14 +115,6 @@ export async function executeMcpStdioSession<T>(
       ...process.env,
       ...env,
     };
-
-    const lowerCmd = cleanCommand.toLowerCase();
-    let execCommand = STANDARD_BINARIES[lowerCmd] || cleanCommand;
-    if (process.platform === 'win32' && !execCommand.toLowerCase().endsWith('.cmd') && !execCommand.toLowerCase().endsWith('.exe')) {
-      if (['npx', 'npm', 'yarn', 'pnpm', 'corepack'].includes(lowerCmd)) {
-        execCommand = `${execCommand}.cmd`;
-      }
-    }
 
     let proc: ReturnType<typeof spawn>;
     try {
