@@ -21,7 +21,7 @@ export class OpenAiClient implements ChatBackend {
   private getHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'HTTP-Referer': 'http://localhost:3000', // Required by some OpenAI-compatible proxies
+      'HTTP-Referer': `http://localhost:${process.env.PORT || '2648'}`, // Required by some OpenAI-compatible proxies
       'X-Title': 'Cogito AI',
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     };

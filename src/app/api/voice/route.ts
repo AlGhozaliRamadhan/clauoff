@@ -5,7 +5,7 @@ import crypto from "crypto";
 import { AVAILABLE_VOICES, DEFAULT_VOICE_SETTINGS } from "@/lib/audio/types";
 import { cleanTextForSpeech } from "@/lib/audio/text-cleaner";
 import { encodeWav } from "@/lib/audio/voice-fx";
-import { synthesizeSpeechTs } from "@/lib/audio/kokoro-tts";
+import { synthesizeSpeechTs, warmKokoroVoice } from "@/lib/audio/kokoro-tts";
 
 export const runtime = "nodejs";
 
@@ -53,8 +53,13 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const rawText = (body.text || "").toString();
     const voice = (body.voice || DEFAULT_VOICE_SETTINGS.voiceId).toString();
+    if (body.action === "warmup") {
+      await warmKokoroVoice(voice);
+      return NextResponse.json({ ok: true, engine: "kokoro-ts-neural", voice });
+    }
+
+    const rawText = (body.text || "").toString();
     const speed = typeof body.speed === "number" ? body.speed : DEFAULT_VOICE_SETTINGS.speed;
     const fx = typeof body.fx === "boolean" ? body.fx : DEFAULT_VOICE_SETTINGS.fxEnabled;
 

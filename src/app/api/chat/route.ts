@@ -10,8 +10,14 @@ import { retrieve } from "@/lib/rag/retrieve";
 import { getThoughtPrompt } from "@/lib/thought-prompts";
 import { runAgenticToolLoop } from "@/lib/agent/tool-loop";
 import { wrapWithBareThoughtGuard } from "@/lib/agent/bare-thought-guard";
-import { TOOLS, buildToolsPrompt } from "@/lib/agent/tools";
+import { TOOLS, buildToolsPrompt, getAllActiveTools } from "@/lib/agent/tools";
 import { compactMessagesForBackend } from "@/lib/agent/context-trimmer";
+import {
+  listSkills,
+  detectSkillSlashCommand,
+  formatSkillPrompt,
+  buildSkillsManifest,
+} from "@/lib/skills";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5 minutes request timeout
@@ -163,8 +169,36 @@ Core directives:
 
   injectGuidance(SYSTEM_INSTRUCTIONS);
 
+  // Load and apply Claude / Agent Skills
+  try {
+    const installedSkills = await listSkills();
+    const lastUserIdx = messages.findLastIndex((m) => m.role === "user");
+
+    if (lastUserIdx !== -1 && typeof messages[lastUserIdx].content === "string") {
+      const detected = detectSkillSlashCommand(messages[lastUserIdx].content, installedSkills);
+      if (detected) {
+        // High-priority injection of active skill
+        injectGuidance(formatSkillPrompt(detected.skill));
+        if (detected.query) {
+          messages[lastUserIdx] = {
+            ...messages[lastUserIdx],
+            content: detected.query,
+          };
+        }
+      }
+    }
+
+    const manifest = buildSkillsManifest(installedSkills);
+    if (manifest) {
+      injectGuidance(manifest);
+    }
+  } catch (err) {
+    console.warn("Failed to load skills for chat session:", err);
+  }
+
   if (enableWebSearch) {
-    injectGuidance(buildToolsPrompt(TOOLS, effort));
+    const activeTools = await getAllActiveTools();
+    injectGuidance(buildToolsPrompt(activeTools, effort));
   }
 
   if (thinking) {

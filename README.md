@@ -2,10 +2,11 @@
 
 A chat app that talks to whichever LLM backend you configure. It replicates the Claude.ai-style chat interaction design, with streaming responses, a thinking panel, markdown rendering, and code artifacts, but there is no Anthropic API call anywhere in the code. The backend is a generic OpenAI-compatible API: LM Studio, Ollama's `/v1`, a Cloudflare-tunneled endpoint, anything that speaks that protocol.
 
-Two capabilities sit on top of plain chat:
+Capabilities on top of plain chat include:
 
 - **Projects + RAG.** Your documents live in per-project libraries on disk under `data/`. They are chunked, embedded through your backend's `/embeddings` endpoint, and stored in a SQLite database with FTS5 and dense vectors. Chat retrieves context from the bound project and cites its sources.
 - **Web search.** The model decides when a search is called for, using a declarative tool registry. The first and only tool is `search_web`, a keyless DuckDuckGo lookup. A switch in the UI turns tool use on or off.
+- **Hands-free local voice.** Click the microphone once and speak naturally. Cogito detects the end of each turn, transcribes it with local Whisper, sends it through the same chat/history path, speaks the streamed answer, and listens again. Speaking during an answer interrupts it. No ElevenLabs or other metered speech account is required.
 
 ## Getting started
 
@@ -16,12 +17,14 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). On first run, open the Settings modal and point Cogito at your backend. The active API profile is stored in `data/cogito-config.json` and can be changed at any time; there is no build-time config. If no profile exists yet, the values in `.env.local` are used as fallbacks:
+Open [http://localhost:2648](http://localhost:2648). On first run, open the Settings modal and point Cogito at your backend. The active API profile is stored in `data/cogito-config.json` and can be changed at any time; there is no build-time config. If no profile exists yet, the values in `.env.local` are used as fallbacks:
+
+The first time you start hands-free voice, Cogito downloads and caches its local speech-recognition model under `data/models/`. Keep the page open while the status says the model is warming up. Later sessions reuse the local cache.
 
 ```env
-BACKEND_BASE_URL=http://localhost:20128/v1
+BACKEND_BASE_URL=http://localhost:1234/v1
 BACKEND_API_KEY=
-DEFAULT_MODEL=ollama/minimax-m3
+DEFAULT_MODEL=llama3.2
 EMBEDDING_MODEL=text-embedding-3-small
 ```
 
@@ -31,7 +34,7 @@ EMBEDDING_MODEL=text-embedding-3-small
 
 | Command | What it does |
 |---------|--------------|
-| `npm run dev` | Start the dev server on http://localhost:3000 |
+| `npm run dev` | Start the dev server on http://localhost:2648 |
 | `npm run build` | Production build (`next build`) |
 | `npm run lint` | ESLint with the Next.js config and TypeScript |
 | `npm test` | Run the Vitest suite |
@@ -50,3 +53,4 @@ Architecture decisions are recorded as ADRs in `docs/adr/`:
 - ADR-0006: web search capability
 - ADR-0007: agentic tool registry
 - ADR-0008: dependency consolidation and toolchain pinning
+- ADR-0016: local hands-free voice conversations

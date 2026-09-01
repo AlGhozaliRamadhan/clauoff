@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getUserConversations, saveUserConversations } from "@/lib/auth/db";
-import type { Conversation } from "@/lib/conversation-store";
+import type { Conversation } from "@/store/conversation-store";
 
 export const runtime = "nodejs";
 

@@ -22,7 +22,7 @@ export { parseAnyToolCall, toToolResultsTag, cleanToolInput } from './tool-parse
 import type { ToolDefinition } from './tool-parser';
 import { cleanToolInput } from './tool-parser';
 import { formatSearchResultsForLLM, webSearch, fetchWebPage } from '@/lib/web-search';
-import { searchCveByKeyword, formatCveForLLM } from '@/lib/cve-explorer';
+import { searchCveByKeyword, formatCveForLLM } from '@/lib/utils/cve-explorer';
 
 /**
  * Context fed back to the model when a search returns nothing (or errors).
@@ -267,11 +267,73 @@ The code runs in an isolated Python subprocess with a 30-second timeout. Only st
       }
     },
   },
+  {
+    name: 'load_skill',
+    description:
+      'Load the full instructions, workflow rules, and guidance for a specialized skill by name (e.g. code-reviewer, commit-message-generator, security-auditor).',
+    usage: `Use this tool when a task matches an available skill or requires specialized workflows.
+Emit the tool inside your thought block with the skill name:
+<action name="load_skill">code-reviewer</action>`,
+    execute: async (input) => {
+      const skillName = cleanToolInput(input).trim();
+      if (!skillName) {
+        return {
+          modelContext: 'load_skill error: please provide a skill name (e.g. <action name="load_skill">code-reviewer</action>).',
+        };
+      }
+      try {
+        const { getSkill } = await import('@/lib/skills/storage');
+        const skill = await getSkill(skillName);
+        if (!skill) {
+          return {
+            modelContext: `Skill "${skillName}" not found. Ensure the skill name matches an available skill.`,
+          };
+        }
+        return {
+          modelContext: `[Skill Loaded: /${skill.name}]\nDescription: ${skill.description}\n\n${skill.instructions}`,
+          status: {
+            label: `Loaded skill: ${skill.name}`,
+            items: [{ title: skill.name, snippet: skill.description }],
+          },
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'failed to load skill';
+        return {
+          modelContext: `load_skill error: could not load "${skillName}" (${msg}).`,
+        };
+      }
+    },
+  },
 ];
+
+let dynamicToolsCache: ToolDefinition[] = [];
 
 /** Look up a tool by name (case-sensitive, matches <action name="...">). */
 export function findTool(name: string): ToolDefinition | undefined {
-  return TOOLS.find((t) => t.name === name);
+  const found = TOOLS.find((t) => t.name === name);
+  if (found) return found;
+  return dynamicToolsCache.find((t) => t.name === name);
+}
+
+/**
+ * Dynamically resolves all active tools: core built-ins + active connectors/MCP tools.
+ */
+export async function getAllActiveTools(): Promise<ToolDefinition[]> {
+  try {
+    const { getDynamicConnectorTools } = await import('@/lib/connectors/registry');
+    const dynamicTools = await getDynamicConnectorTools();
+    dynamicToolsCache = dynamicTools;
+    const map = new Map<string, ToolDefinition>();
+    for (const t of dynamicTools) {
+      map.set(t.name, t);
+    }
+    for (const t of TOOLS) {
+      map.set(t.name, t);
+    }
+    return Array.from(map.values());
+  } catch {
+    return TOOLS;
+  }
 }
 
 /**

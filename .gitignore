@@ -20,6 +20,9 @@
 # production
 /build
 
+# Generated local voice-model runtime assets (copied from node_modules)
+/public/vendor/vad/
+
 # misc
 .DS_Store
 *.pem

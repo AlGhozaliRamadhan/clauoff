@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { KokoroTTS } from "kokoro-js";
-import { Tensor } from "@huggingface/transformers";
+import { env, Tensor } from "@huggingface/transformers";
 import { phonemize } from "phonemizer";
 import { cleanTextForSpeech } from "./text-cleaner";
 import { encodeWav, processCogitoVoice } from "./voice-fx";
@@ -16,6 +16,7 @@ const memoryCache = new Map<string, Buffer>();
 const voiceTensorCache = new Map<string, Float32Array>();
 const phonemeCache = new Map<string, string>();
 const MAX_MEMORY_CACHE = 300;
+const MODEL_CACHE_DIR = path.join(process.cwd(), "data", "models", "transformers-cache");
 
 /**
  * Loads a voice .bin tensor safely from disk or remote CDN without Webpack __dirname path issues.
@@ -43,7 +44,7 @@ export async function loadVoiceTensor(voiceName: string): Promise<Float32Array> 
   }
 
   if (!buffer) {
-    // Fallback: download voice vector directly from HuggingFace CDN
+    // This fallback runs only after an explicit user voice action, then stays local.
     const url = `https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/voices/${voiceName}.bin`;
     const res = await fetch(url);
     if (!res.ok) {
@@ -51,6 +52,9 @@ export async function loadVoiceTensor(voiceName: string): Promise<Float32Array> 
     }
     const ab = await res.arrayBuffer();
     buffer = Buffer.from(ab);
+    const localVoiceDir = path.join(process.cwd(), "data", "voices");
+    await fs.promises.mkdir(localVoiceDir, { recursive: true });
+    await fs.promises.writeFile(path.join(localVoiceDir, `${voiceName}.bin`), buffer);
   }
 
   const float32 = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4);
@@ -64,6 +68,9 @@ export async function loadVoiceTensor(voiceName: string): Promise<Float32Array> 
 export async function getKokoroInstance() {
   if (ttsInstance) return ttsInstance;
   if (!initPromise) {
+    fs.mkdirSync(MODEL_CACHE_DIR, { recursive: true });
+    env.cacheDir = MODEL_CACHE_DIR;
+    env.useFSCache = true;
     initPromise = KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
       dtype: "q8",
     })
@@ -80,19 +87,8 @@ export async function getKokoroInstance() {
   return initPromise;
 }
 
-// Background eager warmup so first user click is instant
-if (typeof process !== "undefined" && process.env.NODE_ENV !== "test") {
-  setTimeout(() => {
-    getKokoroInstance().catch(() => {});
-    ["am_adam", "bm_george", "af_heart", "am_michael", "af_bella"].forEach((v) => {
-      loadVoiceTensor(v).catch(() => {});
-    });
-    // Pre-synthesize short opening phrases in memory cache for 0ms immediate responses
-    const commonOpenings = ["Cogito online.", "Sure.", "Understood.", "Certainly.", "Systems operational."];
-    commonOpenings.forEach((op) => {
-      synthesizeSpeechTs(op, "am_adam", 0.85, true).catch(() => {});
-    });
-  }, 200);
+export async function warmKokoroVoice(voice: string = "am_adam"): Promise<void> {
+  await Promise.all([getKokoroInstance(), loadVoiceTensor(voice)]);
 }
 
 /**
