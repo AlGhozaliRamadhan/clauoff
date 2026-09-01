@@ -141,8 +141,8 @@ export async function saveConnector(
     } catch {}
   }
 
-  // If it's an MCP server, attempt to discover its live tools automatically
-  if ((connector.type === 'mcp_stdio' || connector.type === 'mcp_sse') && (!connector.tools || connector.tools.length === 0)) {
+  // If it's a local stdio MCP server, attempt to discover its live tools automatically
+  if (connector.type === 'mcp_stdio' && (!connector.tools || connector.tools.length === 0)) {
     try {
       const discovered = await discoverMcpTools({
         ...connector,

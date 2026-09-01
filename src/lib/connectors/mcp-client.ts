@@ -25,6 +25,11 @@ interface JsonRpcResponse {
 }
 
 const SAFE_URL_REGEX = /^https?:\/\/[a-zA-Z0-9.\-_]+(?::\d+)?(?:\/[a-zA-Z0-9_\-./~%+]*)?(?:\?[a-zA-Z0-9_.\-~=%&]*)?$/;
+const BLOCKED_HOSTS = new Set([
+  '169.254.169.254',
+  'metadata.google.internal',
+  'metadata',
+]);
 
 export function validateHttpUrl(rawUrl: string): string {
   if (!rawUrl || typeof rawUrl !== 'string') {
@@ -46,6 +51,11 @@ export function validateHttpUrl(rawUrl: string): string {
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error('Only HTTP and HTTPS protocols are permitted');
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (BLOCKED_HOSTS.has(host) || host.endsWith('.internal')) {
+    throw new Error(`Access to private or metadata host "${parsed.hostname}" is forbidden.`);
   }
 
   return match[0];
