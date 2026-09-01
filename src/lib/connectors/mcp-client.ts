@@ -275,30 +275,37 @@ export async function executeMcpStdioSession<T>(
 }
 
 /**
+ * Discovers available tools from a local stdio MCP process.
+ */
+export async function discoverMcpStdioTools(connector: Connector): Promise<ConnectorTool[]> {
+  return executeMcpStdioSession(connector, async (sendRequest) => {
+    const res = await sendRequest('tools/list', {});
+    const tools = res?.tools ?? [];
+
+    return tools.map((t: any): ConnectorTool => {
+      const properties = t.inputSchema?.properties || {};
+      const paramNames = Object.keys(properties);
+      const usageExample = paramNames.length > 0
+        ? `<action name="${t.name}">{\n${paramNames.map((p: string) => `  "${p}": "..."`).join(',\n')}\n}</action>`
+        : `<action name="${t.name}"></action>`;
+
+      return {
+        name: t.name,
+        description: t.description || `Tool ${t.name} provided by ${connector.name}`,
+        usage: usageExample,
+        inputSchema: t.inputSchema,
+        parameters: properties,
+      };
+    });
+  }, connector.config.timeoutMs || 15000);
+}
+
+/**
  * Discovers available tools from an MCP Stdio or HTTP server.
  */
 export async function discoverMcpTools(connector: Connector): Promise<ConnectorTool[]> {
   if (connector.type === 'mcp_stdio') {
-    return executeMcpStdioSession(connector, async (sendRequest) => {
-      const res = await sendRequest('tools/list', {});
-      const tools = res?.tools ?? [];
-
-      return tools.map((t: any): ConnectorTool => {
-        const properties = t.inputSchema?.properties || {};
-        const paramNames = Object.keys(properties);
-        const usageExample = paramNames.length > 0
-          ? `<action name="${t.name}">{\n${paramNames.map(p => `  "${p}": "..."`).join(',\n')}\n}</action>`
-          : `<action name="${t.name}"></action>`;
-
-        return {
-          name: t.name,
-          description: t.description || `Tool ${t.name} provided by ${connector.name}`,
-          usage: usageExample,
-          inputSchema: t.inputSchema,
-          parameters: properties,
-        };
-      });
-    }, connector.config.timeoutMs || 15000);
+    return discoverMcpStdioTools(connector);
   }
 
   if (connector.type === 'mcp_sse' || connector.type === 'custom_http') {

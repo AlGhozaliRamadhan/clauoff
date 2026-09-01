@@ -8,7 +8,7 @@ import path from 'path';
 import { getDataRoot } from '@/lib/rag/paths';
 import type { Connector, ConnectorTestResult } from './types';
 import { BUILTIN_CONNECTORS } from './catalog';
-import { testConnectorConnection, discoverMcpTools } from './mcp-client';
+import { testConnectorConnection, discoverMcpStdioTools } from './mcp-client';
 
 const CONNECTORS_FILE_NAME = 'connectors.json';
 
@@ -144,7 +144,7 @@ export async function saveConnector(
   // If it's a local stdio MCP server, attempt to discover its live tools automatically
   if (connector.type === 'mcp_stdio' && (!connector.tools || connector.tools.length === 0)) {
     try {
-      const discovered = await discoverMcpTools({
+      const discovered = await discoverMcpStdioTools({
         ...connector,
         config: { ...connector.config, timeoutMs: 1500 },
       });
