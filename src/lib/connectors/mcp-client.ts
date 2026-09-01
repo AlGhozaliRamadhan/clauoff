@@ -41,15 +41,17 @@ function validateHttpUrl(rawUrl: string): string {
     throw new Error('Only HTTP and HTTPS protocols are permitted');
   }
 
-  if (!/^[a-zA-Z0-9_\-.~:/?#[\]@!$&'()*+,;=]+$/.test(clean)) {
-    throw new Error('Invalid characters in MCP URL');
-  }
-
-  if (!/^[a-zA-Z0-9.\-_]+$/.test(parsed.hostname)) {
+  const hostname = parsed.hostname.toLowerCase();
+  if (!/^[a-z0-9.\-_]+$/.test(hostname)) {
     throw new Error('Invalid hostname in MCP URL');
   }
 
-  return parsed.href;
+  const validHost = encodeURIComponent(hostname).replace(/%2E/gi, '.').replace(/%2D/gi, '-').replace(/%5F/gi, '_');
+  const validPort = parsed.port ? `:${parseInt(parsed.port, 10)}` : '';
+  const validPath = encodeURI(parsed.pathname);
+  const validSearch = encodeURI(parsed.search);
+
+  return `${parsed.protocol}//${validHost}${validPort}${validPath}${validSearch}`;
 }
 
 function getSafeTimeout(timeoutMs?: unknown, defaultMs: number = 30000): number {

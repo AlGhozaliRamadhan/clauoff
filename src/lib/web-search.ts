@@ -412,7 +412,7 @@ export function htmlToReadableMarkdown(html: string): string {
 
   const targetHtml = mainMatch ? mainMatch[1] : cleaned;
 
-  const stripped = targetHtml
+  let stripped = targetHtml
     .replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, "\n# $1\n")
     .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, "\n## $1\n")
     .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, "\n### $1\n")
@@ -420,9 +420,15 @@ export function htmlToReadableMarkdown(html: string): string {
     .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, "\n$1\n")
     .replace(/<pre[^>]*><code>([\s\S]*?)<\/code><\/pre>/gi, "\n```\n$1\n```\n")
     .replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, "`$1`")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/[<>]/g, "");
+    .replace(/<br\s*\/?>/gi, "\n");
+
+  let prev = "";
+  do {
+    prev = stripped;
+    stripped = stripped.replace(/<[^>]*>/g, "");
+  } while (stripped !== prev);
+
+  stripped = stripped.replace(/[<>]/g, "");
 
   return decodeHtmlEntities(stripped)
     .split("\n")
