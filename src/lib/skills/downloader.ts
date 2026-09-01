@@ -151,7 +151,20 @@ export async function downloadSkillFromUrl(
     throw new Error(`Invalid skill name "${safeName}": ${nameValidation.error}`);
   }
 
-  const isGithub = inputUrl.includes("github.com") || inputUrl.includes("githubusercontent.com");
+  let isGithub = false;
+  try {
+    const parsedUrl = new URL(inputUrl);
+    const host = parsedUrl.hostname.toLowerCase();
+    isGithub =
+      host === "github.com" ||
+      host === "raw.githubusercontent.com" ||
+      host === "gist.github.com" ||
+      host === "gist.githubusercontent.com" ||
+      host.endsWith(".github.com") ||
+      host.endsWith(".githubusercontent.com");
+  } catch {
+    isGithub = false;
+  }
 
   return saveSkill({
     name: safeName,

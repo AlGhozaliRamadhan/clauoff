@@ -357,6 +357,19 @@ export async function fetchWebPage(
   }
 }
 
+function decodeHtmlEntities(text: string): string {
+  return text.replace(/&(?:amp|lt|gt|quot|apos|nbsp|#0*39|#0*34|#x27|#x22);/gi, (match) => {
+    const lower = match.toLowerCase();
+    if (lower === "&amp;") return "&";
+    if (lower === "&lt;") return "<";
+    if (lower === "&gt;") return ">";
+    if (lower === "&quot;" || lower === "&#034;" || lower === "&#34;" || lower === "&#x22;") return '"';
+    if (lower === "&apos;" || lower === "&#039;" || lower === "&#39;" || lower === "&#x27;") return "'";
+    if (lower === "&nbsp;") return " ";
+    return match;
+  });
+}
+
 export function htmlToReadableMarkdown(html: string): string {
   const mainMatch =
     html.match(/<main[^>]*>([\s\S]*?)<\/main>/i) ||
@@ -365,17 +378,23 @@ export function htmlToReadableMarkdown(html: string): string {
     html.match(/<div[^>]*class="[^"]*(?:article-content|post-content|main-content|entry-content)[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
     html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
 
-  const targetHtml = mainMatch ? mainMatch[1] : html;
+  let targetHtml = mainMatch ? mainMatch[1] : html;
 
-  return targetHtml
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
-    .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, "")
-    .replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, "")
-    .replace(/<header\b[^<]*(?:(?!<\/header>)<[^<]*)*<\/header>/gi, "")
-    .replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, "")
-    .replace(/<aside\b[^<]*(?:(?!<\/aside>)<[^<]*)*<\/aside>/gi, "")
-    .replace(/<table\b[^>]*class="[^"]*infobox[^"]*"[\s\S]*?<\/table>/gi, "")
+  let prev = "";
+  do {
+    prev = targetHtml;
+    targetHtml = targetHtml
+      .replace(/<script\b[^<]*(?:(?!<\/script\s*>)<[^<]*)*<\/script\s*>/gi, "")
+      .replace(/<style\b[^<]*(?:(?!<\/style\s*>)<[^<]*)*<\/style\s*>/gi, "")
+      .replace(/<svg\b[^<]*(?:(?!<\/svg\s*>)<[^<]*)*<\/svg\s*>/gi, "")
+      .replace(/<nav\b[^<]*(?:(?!<\/nav\s*>)<[^<]*)*<\/nav\s*>/gi, "")
+      .replace(/<header\b[^<]*(?:(?!<\/header\s*>)<[^<]*)*<\/header\s*>/gi, "")
+      .replace(/<footer\b[^<]*(?:(?!<\/footer\s*>)<[^<]*)*<\/footer\s*>/gi, "")
+      .replace(/<aside\b[^<]*(?:(?!<\/aside\s*>)<[^<]*)*<\/aside\s*>/gi, "")
+      .replace(/<table\b[^>]*class="[^"]*infobox[^"]*"[\s\S]*?<\/table\s*>/gi, "");
+  } while (targetHtml !== prev);
+
+  let md = targetHtml
     .replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, "\n# $1\n")
     .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, "\n## $1\n")
     .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, "\n### $1\n")
@@ -383,15 +402,14 @@ export function htmlToReadableMarkdown(html: string): string {
     .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, "\n$1\n")
     .replace(/<pre[^>]*><code>([\s\S]*?)<\/code><\/pre>/gi, "\n```\n$1\n```\n")
     .replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, "`$1`")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]*>/g, "")
-    .replace(/&#0*39;/g, "'")
-    .replace(/&#0*34;/g, '"')
-    .replace(/&quot;/gi, '"')
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&nbsp;/g, " ")
+    .replace(/<br\s*\/?>/gi, "\n");
+
+  do {
+    prev = md;
+    md = md.replace(/<[^>]*>/g, "");
+  } while (md !== prev);
+
+  return decodeHtmlEntities(md)
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
@@ -474,20 +492,17 @@ export async function webSearch(
 /* ─── Utilities ───────────────────────────────────────────────────── */
 
 function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, "")
-    .replace(/&#0*39;/g, "'")
-    .replace(/&#0*34;/g, '"')
-    .replace(/&#x27;/gi, "'")
-    .replace(/&#x22;/gi, '"')
-    .replace(/&apos;/gi, "'")
-    .replace(/&quot;/gi, '"')
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  let text = html;
+  let prev = "";
+  do {
+    prev = text;
+    text = text
+      .replace(/<script\b[^<]*(?:(?!<\/script\s*>)<[^<]*)*<\/script\s*>/gi, "")
+      .replace(/<style\b[^<]*(?:(?!<\/style\s*>)<[^<]*)*<\/style\s*>/gi, "")
+      .replace(/<[^>]*>/g, "");
+  } while (text !== prev);
+
+  return decodeHtmlEntities(text).replace(/\s+/g, " ").trim();
 }
 
 export function yearSpecificQuery(query: string): string | null {

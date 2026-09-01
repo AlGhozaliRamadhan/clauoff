@@ -44,7 +44,8 @@
     "vitest": "^4.1.11"
   },
   "overrides": {
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "browserslist": "^4.28.7"
   },
   "allowScripts": {
     "unrs-resolver@1.12.2": true,

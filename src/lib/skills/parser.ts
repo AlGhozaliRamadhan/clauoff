@@ -40,13 +40,15 @@ export function validateSkillName(name: string): { valid: boolean; error?: strin
  * Sanitizes any raw name to a valid skill identifier.
  */
 export function sanitizeSkillName(raw: string): string {
-  return raw
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .replace(/--+/g, "-")
-    .slice(0, 64) || "unnamed-skill";
+  if (!raw || typeof raw !== "string") return "unnamed-skill";
+  let sanitized = raw.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-");
+  while (sanitized.startsWith("-")) {
+    sanitized = sanitized.slice(1);
+  }
+  while (sanitized.endsWith("-")) {
+    sanitized = sanitized.slice(0, -1);
+  }
+  return sanitized.slice(0, 64) || "unnamed-skill";
 }
 
 /**
@@ -228,8 +230,11 @@ export function serializeSkillMarkdown(skill: {
     for (const chunk of chunks) {
       lines.push(`  ${chunk.trim()}`);
     }
+  } else if (desc.includes('"') || desc.includes('\\') || desc.includes(':') || desc.includes('#')) {
+    const escapedDesc = desc.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    lines.push(`description: "${escapedDesc}"`);
   } else {
-    lines.push(`description: ${desc.replace(/"/g, '\\"')}`);
+    lines.push(`description: ${desc}`);
   }
 
   if (skill.license) {
@@ -244,7 +249,10 @@ export function serializeSkillMarkdown(skill: {
   if (skill.metadata && Object.keys(skill.metadata).length > 0) {
     lines.push("metadata:");
     for (const [k, v] of Object.entries(skill.metadata)) {
-      lines.push(`  ${k}: "${String(v).replace(/"/g, '\\"')}"`);
+      const cleanKey = k.replace(/[^a-zA-Z0-9_\-]/g, "");
+      if (!cleanKey) continue;
+      const escapedVal = String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      lines.push(`  ${cleanKey}: "${escapedVal}"`);
     }
   }
 

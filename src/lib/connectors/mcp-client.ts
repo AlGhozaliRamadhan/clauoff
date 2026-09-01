@@ -24,6 +24,23 @@ interface JsonRpcResponse {
   };
 }
 
+function validateHttpUrl(rawUrl: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(`Invalid MCP endpoint URL: "${rawUrl}"`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Invalid protocol "${parsed.protocol}" in MCP endpoint URL. Only http: and https: are allowed.`);
+  }
+  return parsed.toString();
+}
+
+function getSafeTimeout(timeoutMs?: number, defaultMs: number = 30000): number {
+  return Math.min(Math.max(1000, Number(timeoutMs) || defaultMs), 120000);
+}
+
 /**
  * Executes a single MCP JSON-RPC exchange over stdio with timeout guard.
  */
@@ -38,6 +55,14 @@ export async function executeMcpStdioSession<T>(
     throw new Error(`MCP Stdio connector "${connector.name}" has no command specified.`);
   }
 
+  const cleanCommand = String(command).trim();
+  if (!cleanCommand || !/^[a-zA-Z0-9_\-./\\:]+$/.test(cleanCommand)) {
+    throw new Error(`Invalid or unsafe MCP command: "${command}"`);
+  }
+
+  const safeArgs = Array.isArray(args) ? args.map((a) => String(a)) : [];
+  const safeTimeoutMs = getSafeTimeout(timeoutMs, 30000);
+
   return new Promise<T>((resolve, reject) => {
     let timer: NodeJS.Timeout | null = null;
     let nextId = 1;
@@ -49,11 +74,18 @@ export async function executeMcpStdioSession<T>(
       ...env,
     };
 
+    let execCommand = cleanCommand;
+    if (process.platform === 'win32' && !execCommand.toLowerCase().endsWith('.cmd') && !execCommand.toLowerCase().endsWith('.exe')) {
+      if (['npx', 'npm', 'yarn', 'pnpm', 'corepack'].includes(execCommand.toLowerCase())) {
+        execCommand = `${execCommand}.cmd`;
+      }
+    }
+
     let proc: ReturnType<typeof spawn>;
     try {
-      proc = spawn(command, args, {
+      proc = spawn(execCommand, safeArgs, {
         env: procEnv,
-        shell: process.platform === 'win32',
+        shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (err) {
@@ -115,8 +147,8 @@ export async function executeMcpStdioSession<T>(
 
     timer = setTimeout(() => {
       cleanup();
-      reject(new Error(`MCP process timed out after ${timeoutMs}ms. Stderr: ${stderrBuffer.slice(-300)}`));
-    }, timeoutMs);
+      reject(new Error(`MCP process timed out after ${safeTimeoutMs}ms. Stderr: ${stderrBuffer.slice(-300)}`));
+    }, safeTimeoutMs);
 
     proc.on('error', (err) => {
       cleanup();
@@ -214,8 +246,10 @@ export async function discoverMcpTools(connector: Connector): Promise<ConnectorT
   }
 
   if (connector.type === 'mcp_sse' || connector.type === 'custom_http') {
-    const url = connector.config.url;
-    if (!url) throw new Error('No URL configured for remote MCP endpoint.');
+    const rawUrl = connector.config.url;
+    if (!rawUrl) throw new Error('No URL configured for remote MCP endpoint.');
+    const url = validateHttpUrl(rawUrl);
+    const timeout = getSafeTimeout(connector.config.timeoutMs, 15000);
 
     const res = await fetch(url, {
       method: 'POST',
@@ -229,7 +263,7 @@ export async function discoverMcpTools(connector: Connector): Promise<ConnectorT
         method: 'tools/list',
         params: {},
       }),
-      signal: AbortSignal.timeout(connector.config.timeoutMs || 15000),
+      signal: AbortSignal.timeout(timeout),
     });
 
     if (!res.ok) {
@@ -278,8 +312,10 @@ export async function callMcpTool(
   }
 
   if (connector.type === 'mcp_sse' || connector.type === 'custom_http') {
-    const url = connector.config.url;
-    if (!url) throw new Error('No URL configured for remote MCP endpoint.');
+    const rawUrl = connector.config.url;
+    if (!rawUrl) throw new Error('No URL configured for remote MCP endpoint.');
+    const url = validateHttpUrl(rawUrl);
+    const timeout = getSafeTimeout(connector.config.timeoutMs, 30000);
 
     const parsedArgs = typeof args === 'string' ? parseInputArguments(args) : args;
     const res = await fetch(url, {
@@ -297,7 +333,7 @@ export async function callMcpTool(
           arguments: parsedArgs,
         },
       }),
-      signal: AbortSignal.timeout(connector.config.timeoutMs || 30000),
+      signal: AbortSignal.timeout(timeout),
     });
 
     if (!res.ok) {

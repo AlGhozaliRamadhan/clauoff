@@ -16,8 +16,13 @@ export function cleanTitle(raw: string): string {
   title = title.replace(/```[\s\S]*?```/g, '');
   title = title.replace(/`([^`]+)`/g, '$1');
 
-  // Strip remaining XML/HTML tags
-  title = title.replace(/<[^>]+>/g, '');
+  // Strip remaining XML/HTML tags iteratively until convergence to prevent nested tag bypasses
+  let prevTitle = "";
+  do {
+    prevTitle = title;
+    title = title.replace(/<[^>]*>/g, "");
+  } while (title !== prevTitle);
+  title = title.replace(/[<>]/g, "");
 
   // Strip leading prefixes like "Title:", "Topic:", "Subject:", etc.
   title = title.replace(/^(?:title|topic|subject|conversation title)\s*:\s*/i, '');

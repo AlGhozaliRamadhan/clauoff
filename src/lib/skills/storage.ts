@@ -26,10 +26,24 @@ export function getSkillsDir(): string {
 }
 
 /**
+ * Resolves a safe file or directory path strictly within a base directory.
+ * Throws if path traversal is detected.
+ */
+export function resolveSafeSkillPath(baseDir: string, ...segments: string[]): string {
+  const resolvedBase = path.resolve(baseDir);
+  const target = path.resolve(resolvedBase, ...segments);
+  const relative = path.relative(resolvedBase, target);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Invalid skill path: path traversal detected");
+  }
+  return target;
+}
+
+/**
  * Returns metadata config path for global skill toggles and settings.
  */
 function getSkillsConfigPath(): string {
-  return path.join(getSkillsDir(), "skills-config.json");
+  return resolveSafeSkillPath(getSkillsDir(), "skills-config.json");
 }
 
 interface SkillsConfig {
@@ -145,8 +159,8 @@ export async function listSkills(): Promise<Skill[]> {
 export async function getSkill(name: string): Promise<Skill | null> {
   const safeName = sanitizeSkillName(name);
   const skillsDir = getSkillsDir();
-  const skillPath = path.join(skillsDir, safeName);
-  const skillMdPath = path.join(skillPath, "SKILL.md");
+  const skillPath = resolveSafeSkillPath(skillsDir, safeName);
+  const skillMdPath = resolveSafeSkillPath(skillPath, "SKILL.md");
 
   if (!fs.existsSync(skillMdPath)) {
     return null;
@@ -201,7 +215,7 @@ export async function saveSkill(params: {
 }): Promise<Skill> {
   const safeName = sanitizeSkillName(params.name);
   const skillsDir = getSkillsDir();
-  const skillDir = path.join(skillsDir, safeName);
+  const skillDir = resolveSafeSkillPath(skillsDir, safeName);
 
   if (!fs.existsSync(skillDir)) {
     fs.mkdirSync(skillDir, { recursive: true });
@@ -234,7 +248,7 @@ export async function saveSkill(params: {
     });
   }
 
-  const skillMdPath = path.join(skillDir, "SKILL.md");
+  const skillMdPath = resolveSafeSkillPath(skillDir, "SKILL.md");
   fs.writeFileSync(skillMdPath, finalContent, "utf-8");
 
   // Update config for enabled state & extra metadata
@@ -293,7 +307,7 @@ export async function toggleSkill(name: string, enabled: boolean): Promise<Skill
 export async function deleteSkill(name: string): Promise<boolean> {
   const safeName = sanitizeSkillName(name);
   const skillsDir = getSkillsDir();
-  const skillDir = path.join(skillsDir, safeName);
+  const skillDir = resolveSafeSkillPath(skillsDir, safeName);
 
   if (!fs.existsSync(skillDir)) {
     return false;

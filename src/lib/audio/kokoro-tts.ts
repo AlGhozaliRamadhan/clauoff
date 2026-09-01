@@ -22,13 +22,18 @@ const MODEL_CACHE_DIR = path.join(process.cwd(), "data", "models", "transformers
  * Loads a voice .bin tensor safely from disk or remote CDN without Webpack __dirname path issues.
  */
 export async function loadVoiceTensor(voiceName: string): Promise<Float32Array> {
-  if (voiceTensorCache.has(voiceName)) {
-    return voiceTensorCache.get(voiceName)!;
+  const safeVoiceName = String(voiceName).trim();
+  if (!/^[a-zA-Z0-9_\-]{1,64}$/.test(safeVoiceName)) {
+    throw new Error(`Invalid voice name: "${voiceName}"`);
+  }
+
+  if (voiceTensorCache.has(safeVoiceName)) {
+    return voiceTensorCache.get(safeVoiceName)!;
   }
 
   const possiblePaths = [
-    path.join(process.cwd(), "node_modules", "kokoro-js", "voices", `${voiceName}.bin`),
-    path.join(process.cwd(), "data", "voices", `${voiceName}.bin`),
+    path.join(process.cwd(), "node_modules", "kokoro-js", "voices", `${safeVoiceName}.bin`),
+    path.join(process.cwd(), "data", "voices", `${safeVoiceName}.bin`),
   ];
 
   let buffer: Buffer | null = null;
@@ -45,20 +50,21 @@ export async function loadVoiceTensor(voiceName: string): Promise<Float32Array> 
 
   if (!buffer) {
     // This fallback runs only after an explicit user voice action, then stays local.
-    const url = `https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/voices/${voiceName}.bin`;
-    const res = await fetch(url);
+    const encodedVoice = encodeURIComponent(safeVoiceName);
+    const url = `https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/voices/${encodedVoice}.bin`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
     if (!res.ok) {
-      throw new Error(`Failed to download voice tensor for ${voiceName}: ${res.statusText}`);
+      throw new Error(`Failed to download voice tensor for ${safeVoiceName}: ${res.statusText}`);
     }
     const ab = await res.arrayBuffer();
     buffer = Buffer.from(ab);
     const localVoiceDir = path.join(process.cwd(), "data", "voices");
     await fs.promises.mkdir(localVoiceDir, { recursive: true });
-    await fs.promises.writeFile(path.join(localVoiceDir, `${voiceName}.bin`), buffer);
+    await fs.promises.writeFile(path.join(localVoiceDir, `${encodedVoice}.bin`), buffer);
   }
 
   const float32 = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4);
-  voiceTensorCache.set(voiceName, float32);
+  voiceTensorCache.set(safeVoiceName, float32);
   return float32;
 }
 

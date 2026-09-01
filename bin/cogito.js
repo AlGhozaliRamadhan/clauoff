@@ -119,14 +119,19 @@ function checkServer(checkPort = port) {
  * Opens default web browser
  */
 function openBrowser(targetUrl) {
-  const platform = process.platform;
-  if (platform === "win32") {
-    exec(`start "" "${targetUrl}"`);
-  } else if (platform === "darwin") {
-    exec(`open "${targetUrl}"`);
-  } else {
-    exec(`xdg-open "${targetUrl}"`);
-  }
+  try {
+    const parsed = new URL(targetUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return;
+    const cleanUrl = parsed.toString();
+    const platform = process.platform;
+    if (platform === "win32") {
+      spawn("cmd.exe", ["/c", "start", "", cleanUrl], { windowsHide: true });
+    } else if (platform === "darwin") {
+      spawn("open", [cleanUrl]);
+    } else {
+      spawn("xdg-open", [cleanUrl]);
+    }
+  } catch {}
 }
 
 /**
@@ -306,22 +311,33 @@ function spawnTray(serverPid = 0) {
     execSync("taskkill /F /IM tray.exe 2>nul", { stdio: "ignore" });
   } catch {}
 
+  const safePort = Number(port) || 2648;
+  const safePid = Number(serverPid) || 0;
+
   const trayExe = fs.existsSync(path.join(PROJECT_ROOT, "native", "windows", "tray.exe"))
     ? path.join(PROJECT_ROOT, "native", "windows", "tray.exe")
     : path.join(__dirname, "tray.exe");
   if (fs.existsSync(trayExe)) {
-    const cmd = `start "" "${trayExe}" /port:${port} /pid:${serverPid} "/root:${PROJECT_ROOT}"`;
-    exec(cmd, { windowsHide: false });
-    return null;
+    const child = spawn(trayExe, [`/port:${safePort}`, `/pid:${safePid}`, `/root:${PROJECT_ROOT}`], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: false,
+    });
+    child.unref();
+    return child.pid || null;
   }
 
   const trayScript = fs.existsSync(path.join(PROJECT_ROOT, "native", "windows", "tray.ps1"))
     ? path.join(PROJECT_ROOT, "native", "windows", "tray.ps1")
     : path.join(__dirname, "tray.ps1");
   if (fs.existsSync(trayScript)) {
-    const cmd = `powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File "${trayScript}" -Port ${port} -ServerPid ${serverPid} -ProjectRoot "${PROJECT_ROOT}"`;
-    exec(cmd, { windowsHide: false });
-    return null;
+    const child = spawn(
+      "powershell.exe",
+      ["-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", trayScript, "-Port", String(safePort), "-ServerPid", String(safePid), "-ProjectRoot", PROJECT_ROOT],
+      { detached: true, stdio: "ignore", windowsHide: false }
+    );
+    child.unref();
+    return child.pid || null;
   }
 
   return null;
@@ -372,32 +388,20 @@ async function startBackground(options = {}) {
 
   console.log(`[Cogito] Starting background server on ${url}...`);
 
-  let serverPid = 0;
+  const nextBin = path.join(PROJECT_ROOT, "node_modules", "next", "dist", "bin", "next");
+  const mode = isDev ? "dev" : "start";
+  const serverArgs = [nextBin, mode, "-p", String(Number(port) || 2648)];
 
-  if (process.platform === "win32") {
-    const nextBin = path.join(PROJECT_ROOT, "node_modules", "next", "dist", "bin", "next");
-    const mode = isDev ? "dev" : "start";
-    const launchCmd = `powershell -NoProfile -WindowStyle Hidden -Command "$p = Start-Process -FilePath '${process.execPath}' -ArgumentList '${nextBin} ${mode} -p ${port}' -WorkingDirectory '${PROJECT_ROOT}' -PassThru -WindowStyle Hidden; $p.Id"`;
-    try {
-      const output = execSync(launchCmd, { encoding: "utf-8" }).trim();
-      serverPid = parseInt(output, 10) || 0;
-    } catch {
-      // fallback
-    }
-  } else {
-    const nextBin = path.join(PROJECT_ROOT, "node_modules", "next", "dist", "bin", "next");
-    const serverArgs = [nextBin, isDev ? "dev" : "start", "-p", String(port)];
+  const serverProcess = spawn(process.execPath, serverArgs, {
+    cwd: PROJECT_ROOT,
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+    env: { ...process.env, PORT: String(port) },
+  });
 
-    const serverProcess = spawn(process.execPath, serverArgs, {
-      cwd: PROJECT_ROOT,
-      detached: true,
-      stdio: "ignore",
-      env: { ...process.env, PORT: String(port) },
-    });
-
-    serverProcess.unref();
-    serverPid = serverProcess.pid;
-  }
+  serverProcess.unref();
+  const serverPid = serverProcess.pid || 0;
 
   const trayPid = spawnTray(serverPid);
 

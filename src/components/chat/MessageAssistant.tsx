@@ -162,12 +162,23 @@ function ArtifactCard({
 }
 
 function decodeHtml(value: string): string {
-  return value
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+  return value.replace(/&(?:amp|lt|gt|quot|#39|#039);/g, (match) => {
+    switch (match) {
+      case "&amp;":
+        return "&";
+      case "&lt;":
+        return "<";
+      case "&gt;":
+        return ">";
+      case "&quot;":
+        return '"';
+      case "&#39;":
+      case "&#039;":
+        return "'";
+      default:
+        return match;
+    }
+  });
 }
 
 export function MessageAssistant({
@@ -477,7 +488,7 @@ export function MessageAssistant({
          .replace(/^\s*Action\s*:\s*$/gm, "")
          .replace(/^\s*Answer\s*:\s*$/gm, "")
          // Strip trailing CJK/emoji junk
-         .replace(/[㐀-鿿豈-﫿぀-ヿ가-힯\u0590-\u05FF\uD800-\uDBFF\uDC00-\uDFFF\uD83C-\uD83E]+$/u, "")
+         .replace(/[\u3400-\u9FFF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7AF\u0590-\u05FF\u{1F000}-\u{1FAFF}]+$/u, "")
          .trim();
     }
   }
