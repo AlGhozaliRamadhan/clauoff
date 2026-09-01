@@ -132,6 +132,15 @@ export async function saveConnector(
     list.push(connector);
   }
 
+  if (connector.config?.url) {
+    try {
+      const parsed = new URL(String(connector.config.url).trim());
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        connector.config.url = parsed.href;
+      }
+    } catch {}
+  }
+
   // If it's an MCP server, attempt to discover its live tools automatically
   if ((connector.type === 'mcp_stdio' || connector.type === 'mcp_sse') && (!connector.tools || connector.tools.length === 0)) {
     try {
