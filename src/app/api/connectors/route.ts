@@ -3,6 +3,7 @@ export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
 import { listConnectors, saveConnector } from '@/lib/connectors/storage';
 import { MCP_PRESETS } from '@/lib/connectors/catalog';
+import { validateHttpUrl } from '@/lib/connectors/mcp-client';
 
 export async function GET() {
   try {
@@ -27,6 +28,10 @@ export async function POST(req: Request) {
         { error: 'Connector name and type are required.' },
         { status: 400 }
       );
+    }
+
+    if (body.config?.url) {
+      body.config.url = validateHttpUrl(body.config.url);
     }
 
     const saved = await saveConnector(body);

@@ -24,41 +24,31 @@ interface JsonRpcResponse {
   };
 }
 
-const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
+const SAFE_URL_REGEX = /^https?:\/\/[a-zA-Z0-9.\-_]+(?::\d+)?(?:\/[a-zA-Z0-9_\-./~%+]*)?(?:\?[a-zA-Z0-9_.\-~=%&]*)?$/;
 
-function isSafeMcpHost(hostname: string): boolean {
-  const lower = hostname.toLowerCase();
-  return (
-    lower === 'localhost' ||
-    lower === '127.0.0.1' ||
-    /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i.test(lower)
-  );
-}
-
-function validateHttpUrl(rawUrl: string): string {
+export function validateHttpUrl(rawUrl: string): string {
   if (!rawUrl || typeof rawUrl !== 'string') {
     throw new Error('MCP endpoint URL is missing or invalid.');
   }
 
+  const clean = rawUrl.trim();
+  const match = clean.match(SAFE_URL_REGEX);
+  if (!match) {
+    throw new Error('Invalid or disallowed characters in MCP endpoint URL');
+  }
+
   let parsed: URL;
   try {
-    parsed = new URL(rawUrl.trim());
+    parsed = new URL(match[0]);
   } catch {
     throw new Error('Invalid MCP endpoint URL');
   }
 
-  if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) {
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error('Only HTTP and HTTPS protocols are permitted');
   }
 
-  if (!isSafeMcpHost(parsed.hostname)) {
-    throw new Error('Invalid or disallowed hostname in MCP URL');
-  }
-
-  const target = new URL(parsed.protocol + '//' + parsed.host);
-  target.pathname = parsed.pathname;
-  target.search = parsed.search;
-  return target.href;
+  return match[0];
 }
 
 function getSafeTimeout(timeoutMs?: unknown, defaultMs: number = 30000): number {

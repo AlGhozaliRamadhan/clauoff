@@ -2,6 +2,7 @@ export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
 import { getConnector, saveConnector, deleteConnector, toggleConnector } from '@/lib/connectors/storage';
+import { validateHttpUrl } from '@/lib/connectors/mcp-client';
 
 export async function GET(
   _req: Request,
@@ -36,6 +37,10 @@ export async function PUT(
         return NextResponse.json({ error: 'Connector not found' }, { status: 404 });
       }
       return NextResponse.json({ success: true, connector: updated });
+    }
+
+    if (body.config?.url) {
+      body.config.url = validateHttpUrl(body.config.url);
     }
 
     const updated = await saveConnector({ ...body, id });
