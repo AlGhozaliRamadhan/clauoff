@@ -1,0 +1,462 @@
+"use client";
+
+import React, { useCallback, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { ChevronDownIcon } from "@/components/ui/Icons";
+
+/**
+ * ThinkingPanel — renders the model's chain-of-thought as a live agent
+ * execution log (P0 polish).
+ *
+ * Shows each reasoning step with a status: done ✓ / running (live spinner) /
+ * failed ✗ / interrupted ⏹ / informational ℹ. Tool calls are shown with a
+ * shortened query, and search results render as a collapsible summary.
+ *
+ * UX contract:
+ *  - Auto-expands while it is the actively-streaming last group so the user
+ *    watches the log build in real time.
+ *  - Collapses to a subtle "Thinking…" / "Thought process" summary once the
+ *    reply is done (or whenever the user manually collapses it).
+ *  - Very long thought bodies are truncated with a "Show more" toggle.
+ *
+ * The raw reasoning text is NOT altered here — it stays in the message
+ * content so localStorage persistence is untouched.
+ */
+
+export interface ThinkingItem {
+  type: "thought" | "tool_results" | "search" | "step" | "confidence";
+  content?: string;
+  label?: string;
+  items?: Array<{ title: string; url: string; snippet: string }>;
+}
+
+interface ThinkingPanelProps {
+  /** Non-text blocks belonging to one thought group, in stream order. */
+  items: ThinkingItem[];
+  /**
+   * Whether this message is currently streaming from the backend.
+   * isStreaming implies this is precisely the message being produced, so it
+   * is the correct "live" signal — the last group in a normal streamed
+   * message is the visible answer, not the thought block.
+   */
+  isStreaming: boolean;
+}
+
+type LogStatus = "done" | "running" | "failed" | "interrupted" | "info";
+
+interface LogEntry {
+  kind: "tool" | "thinking" | "info" | "results" | "confidence";
+  status: LogStatus;
+  label?: string;
+  params?: string;
+  body?: string;
+  summary?: string;
+  items?: ThinkingItem["items"];
+}
+
+const truncate = (value: string, max: number): string =>
+  value.length > max ? `${value.slice(0, max).trimEnd()}…` : value;
+
+/**
+ * Convert the parser's raw blocks into ordered log entries with derived
+ * statuses. A completed tool (followed by <tool_results>) is "done"; a tool
+ * followed by an error step is "failed"; a tool that never resolved is
+ * "running" while streaming and "interrupted" once the stream ends.
+ */
+export function buildThinkingLog(
+  items: ThinkingItem[],
+  isStreaming: boolean,
+): LogEntry[] {
+  const entries: LogEntry[] = [];
+  const open: LogEntry[] = [];
+
+  const pushTool = (label: string, params?: string) => {
+    const entry: LogEntry = { kind: "tool", status: "running", label, params };
+    open.push(entry);
+    entries.push(entry);
+  };
+
+  for (const item of items) {
+    if (item.type === "search") {
+      pushTool("search_web", item.content?.trim());
+      continue;
+    }
+
+    if (item.type === "tool_results") {
+      const last = open.pop();
+      if (last) last.status = "done";
+      const n = item.items?.length ?? 0;
+      entries.push({
+        kind: "results",
+        status: "done",
+        label: item.label || "tool",
+        summary: `${n} result${n === 1 ? "" : "s"}`,
+        items: item.items,
+      });
+      continue;
+    }
+
+    if (item.type === "step") {
+      const content = (item.content ?? "").trim();
+
+      // Tool start — the workhorse of the web-search turn.
+      const toolMatch = content.match(/Using\s+([\w_]+)\s+for\s+"([^"]*)"/i);
+      if (toolMatch) {
+        pushTool(toolMatch[1], toolMatch[2]);
+        continue;
+      }
+
+      if (/encountered an issue/i.test(content) && open.length > 0) {
+        const entry = open.pop()!;
+        entry.status = "failed";
+        entries.push({ kind: "info", status: "info", body: content });
+        continue;
+      }
+
+      if (/reconnected to backend/i.test(content)) {
+        entries.push({ kind: "info", status: "info", body: "Backend connection restored." });
+        continue;
+      }
+
+      if (/connection lost/i.test(content)) {
+        entries.push({ kind: "info", status: "info", body: content });
+        continue;
+      }
+
+      if (/failed to write a visible response|stopped unexpectedly/i.test(content)) {
+        entries.push({ kind: "info", status: "failed", body: content });
+        continue;
+      }
+
+      if (open.length === 0 && /unknown action/i.test(content)) {
+        entries.push({ kind: "info", status: "failed", body: content });
+        continue;
+      }
+
+      // Generic narration (unclosed action, status copy, etc.).
+      entries.push({ kind: "info", status: "info", body: content });
+      continue;
+    }
+
+    if (item.type === "confidence") {
+      const body = (item.content ?? "").trim();
+      if (body) {
+        entries.push({ kind: "confidence", status: "done", body });
+      }
+      continue;
+    }
+
+    if (item.type === "thought") {
+      const body = (item.content ?? "").trim();
+      if (body) {
+        entries.push({ kind: "thinking", status: "done", body });
+      }
+    }
+  }
+
+  // Tools that never resolved: keep "running" while streaming (still live),
+  // otherwise mark them interrupted — the stream ended without a result.
+  if (isStreaming) {
+    for (const entry of open) entry.status = "running";
+  } else {
+    for (const entry of open) entry.status = "interrupted";
+  }
+
+  return entries;
+}
+
+const TRUNCATE_LOG_NOTE = 280;
+
+function StatusGlyph({ status }: { status: LogStatus }) {
+  if (status === "running") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[var(--accent-primary)]">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)] animate-pulse" />
+      </span>
+    );
+  }
+  if (status === "done") {
+    return (
+      <span className="text-emerald-500">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none">
+          <path d="M3 8.5l3.5 3.5L13 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <span className="text-red-400">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none">
+          <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      </span>
+    );
+  }
+  if (status === "interrupted") {
+    return (
+      <span className="text-[var(--text-secondary)]">
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+          <rect x="4" y="4" width="2.4" height="8" rx="0.6" />
+          <rect x="9.6" y="4" width="2.4" height="8" rx="0.6" />
+        </svg>
+      </span>
+    );
+  }
+  return (
+    <span className="text-[var(--text-secondary)] opacity-70">
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none">
+        <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M8 5v4M8 11.4v.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
+}
+
+function ThoughtBody({ body, isStreaming }: { body: string; isStreaming: boolean }) {
+  const [showMore, setShowMore] = useState(false);
+  const isLong = body.length > TRUNCATE_LOG_NOTE;
+
+  // While streaming, don't hide the tail — it's still growing.
+  const display = !isLong || isStreaming || showMore ? body : truncate(body, TRUNCATE_LOG_NOTE);
+
+  return (
+    <div className="min-w-0 max-w-full overflow-hidden">
+      <div className="leading-relaxed break-words [overflow-wrap:anywhere] text-[var(--text-secondary)] opacity-90 text-[0.95em] min-w-0 max-w-full">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            p({ children }) {
+              return <p className="mb-2 last:mb-0 leading-relaxed break-words [overflow-wrap:anywhere]">{children}</p>;
+            },
+            pre({ children }) {
+              return (
+                <pre className="my-2 p-2.5 rounded bg-[var(--surface-sunken)] border border-[var(--border-subtle)] overflow-x-auto max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[0.88em] font-mono text-[var(--text-primary)]">
+                  {children}
+                </pre>
+              );
+            },
+            code({ inline, className, children, ...props }: any) {
+              const match = /language-(\w+)/.exec(className || "");
+              if (!inline || match || String(children).includes("\n")) {
+                return (
+                  <code className="block font-mono text-[0.88em] whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[var(--text-primary)]" {...props}>
+                    {children}
+                  </code>
+                );
+              }
+              return (
+                <code className="bg-[var(--surface-inline-code)] px-1 py-0.5 rounded text-[0.9em] font-mono text-[var(--text-primary)] break-words [overflow-wrap:anywhere]" {...props}>
+                  {children}
+                </code>
+              );
+            },
+            ul({ children }) {
+              return <ul className="list-disc pl-4 mb-2 space-y-0.5 break-words [overflow-wrap:anywhere]">{children}</ul>;
+            },
+            ol({ children }) {
+              return <ol className="list-decimal pl-4 mb-2 space-y-0.5 break-words [overflow-wrap:anywhere]">{children}</ol>;
+            },
+            li({ children }) {
+              return <li className="leading-relaxed break-words [overflow-wrap:anywhere]">{children}</li>;
+            },
+            em({ children }) {
+              return <em className="italic text-[var(--text-secondary)]">{children}</em>;
+            },
+            strong({ children }) {
+              return <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>;
+            },
+            blockquote({ children }) {
+              return (
+                <blockquote className="border-l-2 border-[var(--border-subtle)] pl-2.5 italic my-1 opacity-80 break-words [overflow-wrap:anywhere]">
+                  {children}
+                </blockquote>
+              );
+            },
+          }}
+        >
+          {display}
+        </ReactMarkdown>
+      </div>
+      {isLong && !isStreaming && (
+        <button
+          type="button"
+          onClick={() => setShowMore((v) => !v)}
+          className="mt-1.5 text-xs-ui text-[var(--accent-primary)] hover:text-[var(--accent-primary-hover)] opacity-80 cursor-pointer"
+        >
+          {showMore ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ResultList({
+  items,
+}: {
+  items: NonNullable<ThinkingItem["items"]>;
+}) {
+  return (
+    <ul className="mt-1 ml-4 space-y-1.5 border-l-[2px] border-dotted border-[var(--border-subtle)] pl-3">
+      {items.map((res, i) => (
+        <li key={i}>
+          <a
+            href={res.url || undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+          >
+            <span className="block font-medium text-[var(--text-primary)]">{res.title}</span>
+            {res.snippet && <span className="block opacity-80">{res.snippet}</span>}
+            {res.url && <span className="block text-xs opacity-60 break-all">{res.url}</span>}
+          </a>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function ThinkingPanel({ items, isStreaming }: ThinkingPanelProps) {
+  // Thoughts are closed/collapsed by default. Users can click to expand.
+  const [userOpen, setUserOpen] = useState<boolean>(false);
+  const [resultsOpen, setResultsOpen] = useState<Record<number, boolean>>({});
+
+  const entries = buildThinkingLog(items, isStreaming);
+  if (entries.length === 0) return null;
+
+  const live = isStreaming;
+  const isExpanded = userOpen;
+
+  const doneCount = entries.filter((e) => e.status === "done").length;
+  const failedCount = entries.filter((e) => e.status === "failed" || e.status === "interrupted").length;
+  const hasInterrupted = entries.some((e) => e.status === "interrupted");
+
+  const handleToggle = useCallback((e: React.SyntheticEvent<HTMLDetailsElement>) => {
+    setUserOpen(e.currentTarget.open);
+  }, []);
+
+  const toggleResults = useCallback((idx: number, open: boolean) => {
+    setResultsOpen((prev) => ({ ...prev, [idx]: open }));
+  }, []);
+
+  return (
+    <details
+      className="mb-4 text-sm-ui group min-w-0 max-w-full overflow-hidden"
+      open={isExpanded}
+      onToggle={handleToggle}
+    >
+      <summary className="inline-flex items-center gap-2 cursor-pointer select-none outline-none text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150 list-none [&::-webkit-details-marker]:hidden max-w-full">
+        <ChevronDownIcon
+          size={13}
+          className="opacity-50 transition-transform duration-200 group-open:rotate-180 flex-shrink-0"
+        />
+        {live ? (
+          <span className="inline-flex items-center font-medium text-[var(--text-primary)] animate-pulse tracking-wide truncate">
+            Thinking…
+          </span>
+        ) : (
+          <span className="font-medium truncate">Thought process</span>
+        )}
+        {!live && doneCount > 0 && (
+          <span className="text-xs opacity-60 text-[var(--text-secondary)] flex-shrink-0">
+            · {doneCount} step{doneCount === 1 ? "" : "s"}
+          </span>
+        )}
+        {!live && failedCount > 0 && (
+          <span className="text-xs opacity-80 text-red-400 flex-shrink-0">
+            · {failedCount} issue{failedCount === 1 ? "" : "s"}
+          </span>
+        )}
+      </summary>
+
+      <div className="mt-3 ml-1.5 border-l-[2px] border-[var(--border-subtle)] space-y-2.5 pl-3 min-w-0 max-w-full overflow-hidden">
+        {entries.map((entry, idx) => {
+          if (entry.kind === "confidence") {
+            const rawScore = entry.body?.trim() ?? "";
+            const num = parseFloat(rawScore);
+            const formatted = !isNaN(num) && num <= 1
+              ? `${Math.round(num * 100)}%`
+              : rawScore;
+
+            return (
+              <div key={idx} className="flex items-center gap-2 py-0.5 min-w-0 max-w-full">
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-mono bg-[var(--surface-raised)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80" />
+                  <span className="opacity-75">Confidence</span>
+                  <span className="font-semibold text-[var(--text-primary)]">{formatted}</span>
+                </span>
+              </div>
+            );
+          }
+
+          if (entry.kind === "tool") {
+            return (
+              <div key={idx} className="flex items-baseline gap-2 py-0.5 min-w-0 max-w-full">
+                <span className="flex-shrink-0 mt-1">
+                  <StatusGlyph status={entry.status} />
+                </span>
+                <span className="font-medium text-[var(--text-primary)] opacity-90 font-mono text-sm flex-shrink-0">
+                  {entry.label}
+                </span>
+                {entry.params && (
+                  <span className="text-[var(--text-secondary)] opacity-80 break-words [overflow-wrap:anywhere] min-w-0 max-w-full text-[0.92em]">
+                    “{truncate(entry.params, 90)}”
+                  </span>
+                )}
+              </div>
+            );
+          }
+
+          if (entry.kind === "results") {
+            const openState = resultsOpen[idx] ?? false;
+            const results = entry.items ?? [];
+            return (
+              <details
+                key={idx}
+                className="text-sm-ui group/results py-0.5 min-w-0 max-w-full overflow-hidden"
+                open={openState}
+                onToggle={(e) => toggleResults(idx, e.currentTarget.open)}
+              >
+                <summary className="inline-flex items-center gap-2 cursor-pointer select-none outline-none text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150 list-none [&::-webkit-details-marker]:hidden max-w-full">
+                  <ChevronDownIcon
+                    size={11}
+                    className="transition-transform duration-200 group-open/results:rotate-180 flex-shrink-0"
+                  />
+                  <span className="font-medium truncate">{entry.summary || "Search results"}</span>
+                </summary>
+                {results.length > 0 && <ResultList items={results} />}
+              </details>
+            );
+          }
+
+          if (entry.kind === "thinking") {
+            return (
+              <div key={idx} className="py-0.5 min-w-0 max-w-full overflow-hidden">
+                <ThoughtBody body={entry.body ?? ""} isStreaming={live} />
+              </div>
+            );
+          }
+
+          // info
+          return (
+            <div key={idx} className="flex items-baseline gap-2 py-0.5 min-w-0 max-w-full">
+              <span className="flex-shrink-0 mt-1">
+                <StatusGlyph status={entry.status} />
+              </span>
+              <span className="text-[var(--text-secondary)] opacity-85 text-[0.92em] break-words [overflow-wrap:anywhere] min-w-0 max-w-full">
+                {entry.body}
+              </span>
+            </div>
+          );
+        })}
+
+        {hasInterrupted && (
+          <div className="pt-1 text-xs-ui italic text-[var(--text-secondary)] opacity-70">
+            Generation was stopped — the log may be incomplete.
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}

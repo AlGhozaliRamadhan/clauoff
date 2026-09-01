@@ -2,15 +2,24 @@
   "name": "cogito",
   "version": "0.1.0",
   "private": true,
+  "bin": {
+    "cogito": "./bin/cogito.js"
+  },
   "scripts": {
-    "dev": "next dev",
+    "voice:assets": "node scripts/copy-vad-assets.mjs",
+    "predev": "npm run voice:assets",
+    "dev": "next dev -p 2648",
+    "prebuild": "npm run voice:assets",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 2648",
     "lint": "eslint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "postinstall": "npm run voice:assets"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.8.1",
+    "@ricky0123/vad-web": "^0.0.30",
     "better-sqlite3": "^13.0.2",
     "kokoro-js": "^1.2.1",
     "next": "16.3.2",
@@ -34,9 +43,14 @@
     "typescript": "^5",
     "vitest": "^4.1.11"
   },
+  "overrides": {
+    "sharp": "^0.35.3"
+  },
   "allowScripts": {
     "unrs-resolver@1.12.2": true,
-    "sharp@0.34.5": true,
+    "sharp": true,
+    "onnxruntime-node": true,
+    "protobufjs": true,
     "better-sqlite3": true,
     "esbuild": true
   }

@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "bin/**",
+    // Generated runtime assets copied from @ricky0123/vad-web.
+    "public/vendor/**",
   ]),
 ]);
 

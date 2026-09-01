@@ -40,7 +40,7 @@ Cogito is a local-first chat application. Reports are in scope when they touch a
 - The web-search integration ([`src/lib/web-search.ts`](src/lib/web-search))
 - The OpenAI-compatible backend client ([`src/lib/openai-client.ts`](src/lib/openai-client))
 - Client-side state and rendering, in particular anything that renders model output
-  ([`src/components/CodeBlock.tsx`](src/components/CodeBlock), [`src/components/MarkdownRenderer.tsx`](src/components/MarkdownRenderer))
+  ([`src/components/artifacts/CodeBlock.tsx`](src/components/artifacts/CodeBlock.tsx), [`src/components/artifacts/MarkdownRenderer.tsx`](src/components/artifacts/MarkdownRenderer.tsx))
 
 **Known surfaces and current posture:**
 

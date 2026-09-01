@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import type { User, PublicUser } from "@/lib/auth/types";
-import type { Conversation } from "@/lib/conversation-store";
+import type { Conversation } from "@/store/conversation-store";
 
 interface AuthContextType {
   user: User | null;

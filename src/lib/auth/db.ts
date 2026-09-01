@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { getDataRoot } from "@/lib/rag/paths";
-import type { Conversation } from "@/lib/conversation-store";
+import type { Conversation } from "@/store/conversation-store";
 import { type User, type PublicUser, type Session, AVATAR_COLORS } from "./types";
 
 let mainDbInstance: Database.Database | null = null;
