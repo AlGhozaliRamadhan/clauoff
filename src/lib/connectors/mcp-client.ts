@@ -29,24 +29,27 @@ function validateHttpUrl(rawUrl: string): string {
     throw new Error('MCP endpoint URL is missing or invalid.');
   }
 
+  const clean = rawUrl.trim();
   let parsed: URL;
   try {
-    parsed = new URL(rawUrl.trim());
+    parsed = new URL(clean);
   } catch {
-    throw new Error(`Invalid MCP endpoint URL: "${rawUrl}"`);
+    throw new Error('Invalid MCP endpoint URL');
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Invalid protocol "${parsed.protocol}" in MCP endpoint URL. Only http: and https: are allowed.`);
+    throw new Error('Only HTTP and HTTPS protocols are permitted');
   }
 
-  const hostMatch = parsed.hostname.match(/^[a-zA-Z0-9.\-_]+$/);
-  if (!hostMatch) {
-    throw new Error(`Invalid hostname in MCP endpoint URL.`);
+  if (!/^[a-zA-Z0-9_\-.~:/?#[\]@!$&'()*+,;=]+$/.test(clean)) {
+    throw new Error('Invalid characters in MCP URL');
   }
 
-  const portPart = parsed.port ? `:${parsed.port}` : '';
-  return `${parsed.protocol}//${hostMatch[0]}${portPart}${parsed.pathname}${parsed.search}`;
+  if (!/^[a-zA-Z0-9.\-_]+$/.test(parsed.hostname)) {
+    throw new Error('Invalid hostname in MCP URL');
+  }
+
+  return parsed.href;
 }
 
 function getSafeTimeout(timeoutMs?: unknown, defaultMs: number = 30000): number {
@@ -58,33 +61,38 @@ function getSafeTimeout(timeoutMs?: unknown, defaultMs: number = 30000): number 
   return defaultMs;
 }
 
-const STANDARD_BINARIES: Record<string, string> = {
+const ALLOWED_MCP_COMMANDS: Record<string, string> = {
   npx: process.platform === 'win32' ? 'npx.cmd' : 'npx',
+  'npx.cmd': 'npx.cmd',
   npm: process.platform === 'win32' ? 'npm.cmd' : 'npm',
+  'npm.cmd': 'npm.cmd',
   node: process.platform === 'win32' ? 'node.exe' : 'node',
+  'node.exe': 'node.exe',
   python: process.platform === 'win32' ? 'python.exe' : 'python',
+  'python.exe': 'python.exe',
   python3: process.platform === 'win32' ? 'python3.exe' : 'python3',
+  'python3.exe': 'python3.exe',
   uvx: process.platform === 'win32' ? 'uvx.cmd' : 'uvx',
+  'uvx.cmd': 'uvx.cmd',
   uv: process.platform === 'win32' ? 'uv.exe' : 'uv',
+  'uv.exe': 'uv.exe',
   docker: process.platform === 'win32' ? 'docker.exe' : 'docker',
+  'docker.exe': 'docker.exe',
   deno: process.platform === 'win32' ? 'deno.exe' : 'deno',
+  'deno.exe': 'deno.exe',
   bun: process.platform === 'win32' ? 'bun.exe' : 'bun',
+  'bun.exe': 'bun.exe',
+  git: process.platform === 'win32' ? 'git.exe' : 'git',
+  'git.exe': 'git.exe',
 };
 
 function getSafeExecutable(command: string): string {
   const clean = String(command).trim().toLowerCase();
-  if (STANDARD_BINARIES[clean]) {
-    return STANDARD_BINARIES[clean];
+  const allowed = ALLOWED_MCP_COMMANDS[clean];
+  if (allowed) {
+    return allowed;
   }
-  const match = clean.match(/^[a-zA-Z0-9_\-]+$/);
-  if (!match) {
-    throw new Error(`MCP executable command "${command}" is invalid.`);
-  }
-  const safeName = match[0];
-  if (process.platform === 'win32') {
-    return `${safeName}.cmd`;
-  }
-  return safeName;
+  throw new Error(`Executable "${command}" is not in the allowed MCP commands list.`);
 }
 
 /**
