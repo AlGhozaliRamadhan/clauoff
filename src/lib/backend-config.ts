@@ -15,3 +15,8 @@ export function getDefaultModel(): string {
   const cfg = getActiveBackendConfig();
   return cfg.defaultModel || '';
 }
+
+export function getDefaultImageModel(): string {
+  const cfg = getActiveBackendConfig();
+  return cfg.imageModel || '';
+}

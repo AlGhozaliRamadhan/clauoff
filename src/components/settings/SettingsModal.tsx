@@ -36,6 +36,7 @@ interface LocalApiProfile {
   backendUrl: string;
   apiKey: string;
   defaultModel: string;
+  imageModel: string;
 }
 
 // Icons specific to settings tabs
@@ -956,7 +957,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const [apiProfiles, setApiProfiles] = useState<LocalApiProfile[]>([]);
   const [apiActiveId, setApiActiveId] = useState<string | null>(null);
   const [apiSelectedId, setApiSelectedId] = useState<string | "new" | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", backendUrl: "", apiKey: "", defaultModel: "" });
+  const [editForm, setEditForm] = useState({ name: "", backendUrl: "", apiKey: "", defaultModel: "", imageModel: "" });
   const [showEditApiKey, setShowEditApiKey] = useState<boolean>(false);
   const [apiSaveStatus, setApiSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [apiTestStatus, setApiTestStatus] = useState<"idle" | "testing" | "ok" | "error">("idle");
@@ -1009,7 +1010,10 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     fetch("/api/config")
       .then((r) => r.json())
       .then((data) => {
-        setApiProfiles(data.profiles ?? []);
+        setApiProfiles((data.profiles ?? []).map((profile: Omit<LocalApiProfile, "imageModel"> & { imageModel?: string }) => ({
+          ...profile,
+          imageModel: profile.imageModel ?? "",
+        })));
         setApiActiveId(data.activeId ?? null);
       })
       .catch(() => {});
@@ -1103,7 +1107,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     const p = apiProfiles.find((x) => x.id === id);
     if (!p) return;
     setApiSelectedId(id);
-    setEditForm({ name: p.name, backendUrl: p.backendUrl, apiKey: p.apiKey, defaultModel: p.defaultModel });
+    setEditForm({ name: p.name, backendUrl: p.backendUrl, apiKey: p.apiKey, defaultModel: p.defaultModel, imageModel: p.imageModel || "" });
     setApiModels([]);
     setApiModelsError("");
     setApiTestStatus("idle");
@@ -1112,7 +1116,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
 
   const handleAddNew = () => {
     setApiSelectedId("new");
-    setEditForm({ name: "", backendUrl: "", apiKey: "", defaultModel: "" });
+    setEditForm({ name: "", backendUrl: "", apiKey: "", defaultModel: "", imageModel: "" });
     setApiModels([]);
     setApiModelsError("");
     setApiTestStatus("idle");
@@ -1197,6 +1201,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
         backendUrl: editForm.backendUrl.trim(),
         apiKey: editForm.apiKey.trim(),
         defaultModel: editForm.defaultModel.trim(),
+        imageModel: editForm.imageModel.trim(),
       };
       await persistProfiles([...apiProfiles, tempProfile], "__temp__");
     } catch { /* non-fatal */ }
@@ -1209,6 +1214,9 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       setApiModels(ids);
       if (editForm.defaultModel && !ids.includes(editForm.defaultModel)) {
         setEditForm((f) => ({ ...f, defaultModel: ids[0] }));
+      }
+      if (editForm.imageModel && !ids.includes(editForm.imageModel)) {
+        setEditForm((f) => ({ ...f, imageModel: ids[0] }));
       }
     } catch (err) {
       setApiModelsError(err instanceof Error ? err.message : "Failed to fetch models.");
@@ -1230,6 +1238,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
         backendUrl: editForm.backendUrl.trim(),
         apiKey: editForm.apiKey.trim(),
         defaultModel: editForm.defaultModel.trim(),
+        imageModel: editForm.imageModel.trim(),
       };
       await persistProfiles([...apiProfiles, tempProfile], "__temp__");
       const res = await fetch("/api/models");
@@ -1570,6 +1579,38 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                             )}
                           </div>
 
+                          {/* Image Model */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wide">Image Model (optional)</label>
+                            {apiModels.length > 0 ? (
+                              <div className="relative">
+                                <select
+                                  value={editForm.imageModel}
+                                  onChange={(e) => setEditForm((f) => ({ ...f, imageModel: e.target.value }))}
+                                  className="w-full px-3 py-1.5 pr-7 rounded-lg text-xs-ui appearance-none cursor-pointer font-mono"
+                                  style={{ background: "rgba(0,0,0,0.15)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)", outline: "none" }}
+                                >
+                                  <option value="">(same as chat model)</option>
+                                  {apiModels.map((m) => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 opacity-50">
+                                  <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9" /></svg>
+                                </span>
+                              </div>
+                            ) : (
+                              <input
+                                type="text"
+                                value={editForm.imageModel}
+                                onChange={(e) => setEditForm((f) => ({ ...f, imageModel: e.target.value }))}
+                                placeholder="e.g. click Fetch above, then pick from the list"
+                                className="w-full px-3 py-1.5 rounded-lg text-xs-ui bg-[rgba(0,0,0,0.15)] border border-[var(--border-subtle)] outline-none text-[var(--text-primary)] transition-colors font-mono"
+                                spellCheck={false}
+                                autoComplete="off"
+                              />
+                            )}
+                            <p className="text-[10px] text-[var(--text-secondary)] opacity-70">Sent only to POST /images/generations. Leave blank to use the chat model.</p>
+                          </div>
+
                           {/* Actions row */}
                           <div className="flex items-center gap-2 pt-1">
                             {/* Delete (only if more than 1 profile) */}
@@ -1721,6 +1762,28 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                         placeholder="(auto) or click Fetch to pick from list"
                         className="w-full px-3 py-1.5 rounded-lg text-xs-ui bg-[rgba(0,0,0,0.15)] border border-[var(--border-subtle)] outline-none text-[var(--text-primary)] transition-colors font-mono" />
                     )}
+                  </div>
+
+                  {/* Image Model */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wide">Image Model (optional)</label>
+                    {apiModels.length > 0 ? (
+                      <div className="relative">
+                        <select value={editForm.imageModel} onChange={(e) => setEditForm((f) => ({ ...f, imageModel: e.target.value }))}
+                          className="w-full px-3 py-1.5 pr-7 rounded-lg text-xs-ui appearance-none cursor-pointer font-mono"
+                          style={{ background: "rgba(0,0,0,0.15)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)", outline: "none" }}>
+                          <option value="">(same as chat model)</option>
+                          {apiModels.map((m) => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 opacity-50"><svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9" /></svg></span>
+                      </div>
+                    ) : (
+                      <input type="text" value={editForm.imageModel} onChange={(e) => setEditForm((f) => ({ ...f, imageModel: e.target.value }))}
+                        placeholder="e.g. click Fetch above, then pick from the list"
+                        className="w-full px-3 py-1.5 rounded-lg text-xs-ui bg-[rgba(0,0,0,0.15)] border border-[var(--border-subtle)] outline-none text-[var(--text-primary)] transition-colors font-mono"
+                        spellCheck={false} autoComplete="off" />
+                    )}
+                    <p className="text-[10px] text-[var(--text-secondary)] opacity-70">Sent only to POST /images/generations. Leave blank to use the chat model.</p>
                   </div>
 
                   {/* Actions */}

@@ -41,9 +41,7 @@ describe('security-hardening', () => {
 
   it('escapes quotes in tool results tag', () => {
     const tag = toToolResultsTag({
-      name: 'test',
       label: 'Search "><script>alert(1)</script>',
-      status: 'success',
       items: [{ title: 'Item "1"', url: 'https://example.com' }],
     });
     expect(tag).not.toContain('<script>');

@@ -131,4 +131,29 @@ describe("Conversation Tree & Branching Engine", () => {
     linear = getLinearMessages(mapping, v1Leaf);
     expect(linear[1].content).toBe("Response Attempt 1");
   });
+
+  it("preserves generated images through migration, edits, and retries", () => {
+    const image = {
+      id: "00000000-0000-4000-8000-000000000000.png",
+      url: "/api/images/00000000-0000-4000-8000-000000000000.png",
+      mimeType: "image/png",
+      prompt: "a lighthouse",
+      width: 1024,
+      height: 1024,
+    };
+    const migrated = ensureTreeState([
+      { id: "u1", role: "user", content: "a lighthouse" },
+      { id: "a1", role: "assistant", content: "Generated image", responseType: "image", image },
+    ]);
+    expect(getLinearMessages(migrated.mapping, migrated.currentLeafId)[1].image).toEqual(image);
+
+    const turn = appendNewTurn({}, null, "a lighthouse", "image");
+    expect(turn.assistantNode.responseType).toBe("image");
+
+    const retry = forkAndRetryAssistantMessage(turn.mapping, turn.assistantNode.id);
+    expect(retry.assistantNode.responseType).toBe("image");
+
+    const edit = forkAndEditUserMessage(turn.mapping, turn.userNode.id, "a lighthouse at dusk");
+    expect(edit.assistantNode.responseType).toBe("image");
+  });
 });

@@ -6,6 +6,7 @@
 
 import type { Message } from "@/components/chat/ChatThread";
 import type { SourceCitation } from "@/lib/rag/types";
+import type { GeneratedImageInfo } from "@/lib/images/types";
 import { generateMessageId } from "@/store/conversation-store";
 
 export interface MessageNode {
@@ -17,6 +18,8 @@ export interface MessageNode {
   createdAt: number;
   sources?: SourceCitation[];
   isStreaming?: boolean;
+  responseType?: "chat" | "image";
+  image?: GeneratedImageInfo;
 }
 
 export interface ConversationTreeState {
@@ -51,6 +54,8 @@ export function ensureTreeState(
       createdAt: now,
       sources: msg.sources,
       isStreaming: msg.isStreaming,
+      responseType: msg.responseType,
+      image: msg.image,
     };
 
     if (parentId && newMapping[parentId]) {
@@ -93,6 +98,8 @@ export function getLinearMessages(
       content: node.content,
       isStreaming: node.isStreaming,
       sources: node.sources,
+      responseType: node.responseType,
+      image: node.image,
     });
 
     currId = node.parentId;
@@ -183,6 +190,7 @@ export function appendNewTurn(
   mapping: Record<string, MessageNode>,
   currentLeafId: string | null,
   userText: string,
+  responseType: "chat" | "image" = "chat",
 ): {
   mapping: Record<string, MessageNode>;
   userNode: MessageNode;
@@ -212,6 +220,7 @@ export function appendNewTurn(
     children: [],
     createdAt: now + 1,
     isStreaming: true,
+    responseType,
   };
 
   if (currentLeafId && newMapping[currentLeafId]) {
@@ -256,6 +265,9 @@ export function forkAndEditUserMessage(
 
   const newUserNodeId = generateMessageId("user");
   const newAssistantNodeId = generateMessageId("assistant");
+  const originalAssistant = original.children
+    .map((childId) => mapping[childId])
+    .find((node) => node?.role === "assistant");
 
   const userNode: MessageNode = {
     id: newUserNodeId,
@@ -274,6 +286,7 @@ export function forkAndEditUserMessage(
     children: [],
     createdAt: now + 1,
     isStreaming: true,
+    responseType: originalAssistant?.responseType ?? "chat",
   };
 
   if (parentId && newMapping[parentId]) {
@@ -327,6 +340,7 @@ export function forkAndRetryAssistantMessage(
     children: [],
     createdAt: now,
     isStreaming: true,
+    responseType: original.responseType ?? "chat",
   };
 
   newMapping[userParentId] = {

@@ -38,6 +38,7 @@ import {
 import type { Project, SourceCitation } from "@/lib/rag/types";
 import { generateSmartFallbackTitle } from "@/lib/utils/title-utils";
 import { useVoiceSession } from "@/hooks/useVoiceSession";
+import type { GeneratedImageInfo } from "@/lib/images/types";
 
 type MainView = "chat" | "projects";
 
@@ -84,16 +85,25 @@ export function AppShell() {
   // so offering tools just produces narration instead of answers. The toggle
   // in the composer flips it per session.
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [imageGenerationEnabled, setImageGenerationEnabled] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined" && localStorage.getItem("cogito.webSearch.v1") === "true") {
       setWebSearchEnabled(true);
+    }
+    if (typeof window !== "undefined" && localStorage.getItem("cogito.imageGeneration.v1") === "true") {
+      setImageGenerationEnabled(true);
     }
   }, []);
 
   const handleWebSearchToggle = useCallback((enabled: boolean) => {
     setWebSearchEnabled(enabled);
     localStorage.setItem("cogito.webSearch.v1", String(enabled));
+  }, []);
+
+  const handleImageGenerationToggle = useCallback((enabled: boolean) => {
+    setImageGenerationEnabled(enabled);
+    localStorage.setItem("cogito.imageGeneration.v1", String(enabled));
   }, []);
 
   const { activeArtifact, setActiveArtifact } = useArtifact();
@@ -597,6 +607,99 @@ export function AppShell() {
     [selectedModel, webSearchEnabled, voiceSettings.autoPlay, enqueueVoiceChunk, playVoice, stopVoice],
   );
 
+  const executeImageGeneration = useCallback(
+    async ({
+      convId,
+      assistantMsgId,
+      prompt,
+    }: {
+      convId: string;
+      assistantMsgId: string;
+      prompt: string;
+    }) => {
+      setStreamingConversationIds((prev) => prev.includes(convId) ? prev : [...prev, convId]);
+      const controller = new AbortController();
+      abortControllersRef.current[convId] = controller;
+
+      const updateAssistant = (content: string, image?: GeneratedImageInfo) => {
+        setConversations((prev) =>
+          prev.map((conversation) => {
+            if (conversation.id !== convId) return conversation;
+            const mapping = conversation.mapping ? { ...conversation.mapping } : {};
+            if (mapping[assistantMsgId]) {
+              mapping[assistantMsgId] = {
+                ...mapping[assistantMsgId],
+                content,
+                image,
+                responseType: "image",
+                isStreaming: false,
+              };
+            }
+            const messages = conversation.currentLeafId
+              ? getLinearMessages(mapping, conversation.currentLeafId)
+              : conversation.messages.map((message) =>
+                  message.id === assistantMsgId
+                    ? { ...message, content, image, responseType: "image" as const, isStreaming: false }
+                    : message,
+                );
+            return {
+              ...conversation,
+              mapping,
+              messages,
+              updatedAt: Date.now(),
+            };
+          }),
+        );
+      };
+
+      // Show an instant "rendering" placeholder so the user sees progress
+      // immediately instead of a long blank wait (diffusion can take minutes).
+      updateAssistant(`🎨 Rendering image from: ${prompt}\n\n_Generating… this can take a few minutes on a remote GPU._`);
+
+      try {
+        let response: Response;
+        try {
+          response = await fetch("/api/images/generations", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt }),
+            signal: controller.signal,
+          });
+        } catch (networkError) {
+          if (networkError instanceof Error && networkError.name === "AbortError") throw networkError;
+          throw new Error(
+            `Cannot reach the image endpoint (${networkError instanceof TypeError ? "connection failed" : "request failed"}). Is the app server running?`,
+          );
+        }
+        const data = await response.json().catch(() => ({})) as {
+          image?: GeneratedImageInfo;
+          error?: string;
+        };
+        if (!response.ok || !data.image) {
+          const detail = data.error || `Image generation failed (${response.status}).`;
+          throw new Error(
+            response.status === 502
+              ? `${detail} — the backend or tunnel dropped the request. Check that the backend URL is reachable, then retry.`
+              : detail,
+          );
+        }
+
+        updateAssistant(`Generated an image from: ${prompt}`, data.image);
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          updateAssistant("Image generation stopped.");
+        } else {
+          const message = error instanceof Error ? error.message : "Image generation failed.";
+          updateAssistant(`⚠ ${message}`);
+        }
+      } finally {
+        delete abortControllersRef.current[convId];
+        setStreamingConversationIds((prev) => prev.filter((id) => id !== convId));
+      }
+    },
+    [],
+  );
+
   const sendMessageText = useCallback((rawText: string): boolean => {
     const text = rawText.trim();
     if (!text || isActiveStreaming) return false;
@@ -623,6 +726,7 @@ export function AppShell() {
       currentMapping,
       currentLeafId,
       text,
+      imageGenerationEnabled ? "image" : "chat",
     );
 
     const linearMessages = getLinearMessages(newMapping, newLeafId);
@@ -659,16 +763,20 @@ export function AppShell() {
     setMainView("chat");
     setInputValue("");
 
-    const apiMessages = linearMessages
-      .filter((m) => m.id !== assistantNode.id && m.content.length > 0)
-      .map((m) => ({ role: m.role, content: m.content }));
+    if (assistantNode.responseType === "image") {
+      void executeImageGeneration({ convId, assistantMsgId: assistantNode.id, prompt: text });
+    } else {
+      const apiMessages = linearMessages
+        .filter((m) => m.id !== assistantNode.id && m.content.length > 0)
+        .map((m) => ({ role: m.role, content: m.content }));
 
-    void executeStream({
-      convId,
-      assistantMsgId: assistantNode.id,
-      apiMessages,
-      projectId: projectIdForConv,
-    });
+      void executeStream({
+        convId,
+        assistantMsgId: assistantNode.id,
+        apiMessages,
+        projectId: projectIdForConv,
+      });
+    }
     return true;
   }, [
     isActiveStreaming,
@@ -677,6 +785,8 @@ export function AppShell() {
     activeProjectId,
     conversations,
     executeStream,
+    executeImageGeneration,
+    imageGenerationEnabled,
   ]);
 
   const handleSend = useCallback(() => {
@@ -715,18 +825,22 @@ export function AppShell() {
         ),
       );
 
-      const apiMessages = linearMessages
-        .filter((m) => m.id !== assistantNode.id && m.content.length > 0)
-        .map((m) => ({ role: m.role, content: m.content }));
+      if (assistantNode.responseType === "image") {
+        void executeImageGeneration({ convId, assistantMsgId: assistantNode.id, prompt: newContent });
+      } else {
+        const apiMessages = linearMessages
+          .filter((m) => m.id !== assistantNode.id && m.content.length > 0)
+          .map((m) => ({ role: m.role, content: m.content }));
 
-      executeStream({
-        convId,
-        assistantMsgId: assistantNode.id,
-        apiMessages,
-        projectId: conv.projectId,
-      });
+        void executeStream({
+          convId,
+          assistantMsgId: assistantNode.id,
+          apiMessages,
+          projectId: conv.projectId,
+        });
+      }
     },
-    [activeConversationId, isActiveStreaming, conversations, executeStream],
+    [activeConversationId, isActiveStreaming, conversations, executeStream, executeImageGeneration],
   );
 
   const handleRetryTurn = useCallback(
@@ -752,6 +866,7 @@ export function AppShell() {
       if (!targetId || !tree.mapping[targetId] || tree.mapping[targetId].role !== "assistant") {
         return;
       }
+      const originalAssistant = tree.mapping[targetId];
 
       const { mapping: newMapping, assistantNode, newLeafId } = forkAndRetryAssistantMessage(
         tree.mapping,
@@ -774,18 +889,26 @@ export function AppShell() {
         ),
       );
 
-      const apiMessages = linearMessages
-        .filter((m) => m.id !== assistantNode.id && m.content.length > 0)
-        .map((m) => ({ role: m.role, content: m.content }));
+      if (originalAssistant.responseType === "image") {
+        const prompt = originalAssistant.parentId
+          ? tree.mapping[originalAssistant.parentId]?.content
+          : undefined;
+        if (!prompt) return;
+        void executeImageGeneration({ convId, assistantMsgId: assistantNode.id, prompt });
+      } else {
+        const apiMessages = linearMessages
+          .filter((m) => m.id !== assistantNode.id && m.content.length > 0)
+          .map((m) => ({ role: m.role, content: m.content }));
 
-      executeStream({
-        convId,
-        assistantMsgId: assistantNode.id,
-        apiMessages,
-        projectId: conv.projectId,
-      });
+        void executeStream({
+          convId,
+          assistantMsgId: assistantNode.id,
+          apiMessages,
+          projectId: conv.projectId,
+        });
+      }
     },
-    [activeConversationId, isActiveStreaming, conversations, executeStream],
+    [activeConversationId, isActiveStreaming, conversations, executeStream, executeImageGeneration],
   );
 
   const handleSwitchVersion = useCallback(
@@ -988,8 +1111,14 @@ export function AppShell() {
         : undefined,
     webSearchEnabled,
     onWebSearchToggle: handleWebSearchToggle,
+    imageGenerationEnabled,
+    onImageGenerationToggle: handleImageGenerationToggle,
     onOpenSettings: () => {
       setSettingsTab("general");
+      setShowSettings(true);
+    },
+    onOpenImageSettings: () => {
+      setSettingsTab("api");
       setShowSettings(true);
     },
     voiceSession,

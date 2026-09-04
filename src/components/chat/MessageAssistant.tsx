@@ -12,6 +12,8 @@ import { useArtifact } from "@/contexts/ArtifactContext";
 import { parseAnyToolCall } from "@/lib/agent/tool-parser";
 import type { SourceCitation } from "@/lib/rag/types";
 import type { VersionInfo } from "./ChatThread";
+import type { GeneratedImageInfo } from "@/lib/images/types";
+import { GeneratedImageCard } from "./GeneratedImageCard";
 
 interface MessageAssistantProps {
   content: string;
@@ -21,6 +23,8 @@ interface MessageAssistantProps {
   messageId?: string;
   versionInfo?: VersionInfo;
   onSwitchVersion?: (targetNodeId: string) => void;
+  image?: GeneratedImageInfo;
+  responseType?: "chat" | "image";
 }
 
 interface ToolResultsItem {
@@ -189,6 +193,8 @@ export function MessageAssistant({
   messageId,
   versionInfo,
   onSwitchVersion,
+  image,
+  responseType,
 }: MessageAssistantProps) {
   const [copied, setCopied] = useState(false);
 
@@ -564,7 +570,36 @@ export function MessageAssistant({
 
         {/* Message content */}
         <div className="flex-1 min-w-0" data-role="assistant">
-          {activeGroups.map((group, groupIdx) => {
+          {image && <GeneratedImageCard image={image} />}
+
+          {!image && isStreaming && responseType === "image" && (
+            <div
+              className="my-1 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-raised)]"
+              role="status"
+              aria-label="Generating image"
+            >
+              <div className="flex items-center gap-3 px-4 py-6">
+                <div className="w-8 h-8 rounded-lg bg-[var(--surface-app)] border border-[var(--border-subtle)] flex items-center justify-center flex-shrink-0">
+                  <div className="w-4 h-4 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-1.5">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)] animate-pulse" />
+                    Rendering image…
+                  </p>
+                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                    This can take a few minutes on a remote GPU. You can keep chatting meanwhile.
+                  </p>
+                </div>
+              </div>
+              {/* Indeterminate shimmer bar */}
+              <div className="h-1 w-full bg-[var(--surface-app)] overflow-hidden">
+                <div className="h-full w-1/3 rounded-full bg-[var(--accent-primary)] opacity-70 animate-[image-progress-slide_1.4s_ease-in-out_infinite]" />
+              </div>
+            </div>
+          )}
+
+          {!image && activeGroups.map((group, groupIdx) => {
             if (group.type === "thought_group") {
               const isActivelyThinking = isStreaming && groupIdx === activeGroups.length - 1;
               return (
@@ -598,7 +633,7 @@ export function MessageAssistant({
             );
           })}
 
-          {!isStreaming && !hasVisibleText && hasThoughts && (
+          {!image && !isStreaming && !hasVisibleText && hasThoughts && (
             <p
               className="text-[var(--text-secondary)] opacity-70 italic"
               style={{ fontSize: "0.95em" }}
@@ -650,18 +685,22 @@ export function MessageAssistant({
                 </div>
               )}
 
-              <AudioPlayerButton
-                text={rawCopyText || content}
-                id={messageId || `msg-${rawCopyText.slice(0, 16)}`}
-                size={15}
-              />
-              <button
-                onClick={handleCopy}
-                className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
-                title="Copy to clipboard"
-              >
-                {copied ? <CheckIcon className="w-4 h-4" /> : <CopyIcon className="w-4 h-4" />}
-              </button>
+              {!image && (
+                <>
+                  <AudioPlayerButton
+                    text={rawCopyText || content}
+                    id={messageId || `msg-${rawCopyText.slice(0, 16)}`}
+                    size={15}
+                  />
+                  <button
+                    onClick={handleCopy}
+                    className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
+                    title="Copy to clipboard"
+                  >
+                    {copied ? <CheckIcon className="w-4 h-4" /> : <CopyIcon className="w-4 h-4" />}
+                  </button>
+                </>
+              )}
               {onRetry && (
                 <button
                   onClick={() => onRetry(messageId)}

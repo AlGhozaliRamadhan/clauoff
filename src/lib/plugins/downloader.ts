@@ -5,7 +5,8 @@
 import fs from 'fs';
 import path from 'path';
 import { getPluginsDirectory, getPlugin, sanitizePluginId, resolveSafePluginPath } from './storage';
-import { saveSkill, sanitizeSkillName } from '@/lib/skills/storage';
+import { saveSkill } from '@/lib/skills/storage';
+import { sanitizeSkillName } from '@/lib/skills/parser';
 import { saveConnector } from '@/lib/connectors/storage';
 import type { Plugin, PluginManifest } from './types';
 

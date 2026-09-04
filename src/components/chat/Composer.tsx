@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect, useCallback, useState } from "react";
-import { SendIcon, StopIcon, PlusIcon, VoiceIcon, MicIcon, WebSearchIcon, SkillsIcon } from "@/components/ui/Icons";
+import { SendIcon, StopIcon, PlusIcon, VoiceIcon, MicIcon, WebSearchIcon, SkillsIcon, DesignIcon } from "@/components/ui/Icons";
 import { ModelSelector } from "./ModelSelector";
 import { useAudio } from "@/contexts/AudioContext";
 import type { VoiceSessionUiState } from "@/lib/audio/voice-session";
@@ -24,7 +24,11 @@ interface ComposerProps {
   webSearchEnabled?: boolean;
   /** Toggle web search on/off. */
   onWebSearchToggle?: (enabled: boolean) => void;
+  /** Routes the next prompt to the active profile's image-generation endpoint. */
+  imageGenerationEnabled?: boolean;
+  onImageGenerationToggle?: (enabled: boolean) => void;
   onOpenSettings?: () => void;
+  onOpenImageSettings?: () => void;
   /** Persistent local-first hands-free conversation state (ADR-0016). */
   voiceSession: VoiceSessionUiState;
 }
@@ -43,7 +47,10 @@ export function Composer({
   onAttachFiles,
   webSearchEnabled = false,
   onWebSearchToggle,
+  imageGenerationEnabled = false,
+  onImageGenerationToggle,
   onOpenSettings,
+  onOpenImageSettings,
   voiceSession,
 }: ComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -252,7 +259,7 @@ export function Composer({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={placeholder}
+          placeholder={imageGenerationEnabled ? "Describe the image you want to generate…" : placeholder}
           rows={1}
           className="flex-1 bg-transparent outline-none resize-none placeholder:text-[var(--text-secondary)]"
           style={{
@@ -335,15 +342,41 @@ export function Composer({
           >
             <WebSearchIcon size={18} />
           </button>
+
+          <button
+            type="button"
+            onClick={() => onImageGenerationToggle?.(!imageGenerationEnabled)}
+            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+              imageGenerationEnabled
+                ? "text-[var(--accent-primary)] bg-[rgba(201,96,63,0.12)]"
+                : "text-[var(--text-secondary)] hover:bg-[var(--border-subtle)] hover:text-[var(--text-primary)]"
+            }`}
+            aria-label={imageGenerationEnabled ? "Disable image generation" : "Enable image generation"}
+            aria-pressed={imageGenerationEnabled}
+            title={imageGenerationEnabled ? "Image generation: on" : "Image generation: off"}
+          >
+            <DesignIcon size={18} />
+          </button>
         </div>
 
         {/* Right: model selector + voice / send / stop */}
         <div className="flex items-center gap-2">
-          <ModelSelector
-            selectedModel={selectedModel}
-            onModelChange={onModelChange}
-            onOpenSettings={onOpenSettings}
-          />
+          {imageGenerationEnabled ? (
+            <button
+              type="button"
+              onClick={onOpenImageSettings || onOpenSettings}
+              className="rounded-lg border border-[var(--border-subtle)] px-2.5 py-1.5 text-xs font-medium text-[var(--accent-primary)] transition-colors hover:bg-[var(--surface-hover)]"
+              title="Configure the image model in API settings"
+            >
+              Image mode
+            </button>
+          ) : (
+            <ModelSelector
+              selectedModel={selectedModel}
+              onModelChange={onModelChange}
+              onOpenSettings={onOpenSettings}
+            />
+          )}
 
           {/* Hands-free voice remains available while Cogito is generating. */}
           <div className="flex items-center gap-1">
@@ -414,7 +447,7 @@ export function Composer({
                 onClick={onSend}
                 className="p-2 rounded-xl transition-all duration-150 cursor-pointer"
                 style={{ background: "var(--text-primary)", color: "var(--surface-sidebar)" }}
-                aria-label="Send message"
+                aria-label={imageGenerationEnabled ? "Generate image" : "Send message"}
               >
                 <SendIcon size={18} />
               </button>

@@ -9,6 +9,7 @@ export interface ApiProfile {
   backendUrl: string;
   apiKey: string;
   defaultModel: string;
+  imageModel?: string;
 }
 
 export interface StoredConfig {
@@ -30,6 +31,7 @@ export function readStoredConfig(): StoredConfig {
           backendUrl: parsed.backendUrl || '',
           apiKey: parsed.apiKey || '',
           defaultModel: parsed.defaultModel || '',
+          imageModel: parsed.imageModel || '',
         };
         return { profiles: [migrated], activeId: 'migrated-1' };
       }
@@ -59,6 +61,7 @@ export function getActiveBackendConfig(): {
   backendUrl: string;
   apiKey: string;
   defaultModel: string;
+  imageModel: string;
   profileId?: string;
   profileName?: string;
 } {
@@ -74,6 +77,7 @@ export function getActiveBackendConfig(): {
       backendUrl: active.backendUrl?.trim() || defaultUrlFallback,
       apiKey: active.apiKey || process.env.BACKEND_API_KEY || '',
       defaultModel: active.defaultModel || process.env.DEFAULT_MODEL || '',
+      imageModel: active.imageModel?.trim() || process.env.IMAGE_MODEL || '',
       profileId: active.id,
       profileName: active.name,
     };
@@ -83,6 +87,7 @@ export function getActiveBackendConfig(): {
     backendUrl: defaultUrlFallback,
     apiKey: process.env.BACKEND_API_KEY || '',
     defaultModel: process.env.DEFAULT_MODEL || '',
+    imageModel: process.env.IMAGE_MODEL || '',
     profileId: undefined,
     profileName: undefined,
   };

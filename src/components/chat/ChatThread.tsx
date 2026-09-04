@@ -6,6 +6,7 @@ import { MessageAssistant } from "./MessageAssistant";
 import { ChevronDownIcon } from "@/components/ui/Icons";
 import { getNodeSiblingInfo, type MessageNode } from "@/lib/utils/tree-utils";
 import type { SourceCitation } from "@/lib/rag/types";
+import type { GeneratedImageInfo } from "@/lib/images/types";
 
 export interface Message {
   id: string;
@@ -13,6 +14,8 @@ export interface Message {
   content: string;
   isStreaming?: boolean;
   sources?: SourceCitation[];
+  responseType?: "chat" | "image";
+  image?: GeneratedImageInfo;
 }
 
 export interface VersionInfo {
@@ -99,6 +102,8 @@ export function ChatThread({
               content={msg.content}
               isStreaming={msg.isStreaming}
               sources={msg.sources}
+              image={msg.image}
+              responseType={msg.responseType}
               versionInfo={versionInfo}
               onSwitchVersion={onSwitchVersion}
               onRetry={onRetry ? () => onRetry(msg.id) : undefined}

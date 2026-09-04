@@ -211,6 +211,11 @@ input:focus-visible {
   50%      { opacity: 0; }
 }
 
+@keyframes image-progress-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
 .animate-fade-in {
   animation: fadeIn 0.2s ease-out both;
 }

@@ -16,6 +16,7 @@ export async function GET() {
     // Expose env defaults so the UI can show them as reference
     envBackendUrl: process.env.BACKEND_BASE_URL || "",
     envDefaultModel: process.env.DEFAULT_MODEL || "",
+    envImageModel: process.env.IMAGE_MODEL || "",
   });
 }
 
