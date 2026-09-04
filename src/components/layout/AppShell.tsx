@@ -62,6 +62,17 @@ export function AppShell() {
 
   const [inputValue, setInputValue] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
+  // Image-mode model id: separate from the chat model. Lazy initializer reads
+  // localStorage once (no hydration effect). Blank means "use the active
+  // profile default"; the server falls back the same way (ADR-0018).
+  const [selectedImageModel, setSelectedImageModel] = useState<string>(() => {
+    try {
+      if (typeof window === "undefined") return "";
+      return localStorage.getItem("cogito.imageModel.v1") ?? "";
+    } catch {
+      return "";
+    }
+  });
   const [streamingConversationIds, setStreamingConversationIds] = useState<string[]>([]);
   const abortControllersRef = useRef<{ [convId: string]: AbortController }>({});
 
@@ -104,6 +115,30 @@ export function AppShell() {
   const handleImageGenerationToggle = useCallback((enabled: boolean) => {
     setImageGenerationEnabled(enabled);
     localStorage.setItem("cogito.imageGeneration.v1", String(enabled));
+  }, []);
+
+  // Persists the explicit image-model pick per browser. Blank means "follow
+  // the active profile default" (server falls back the same way, ADR-0018).
+  const handleImageModelChange = useCallback((modelId: string) => {
+    setSelectedImageModel(modelId);
+    try {
+      localStorage.setItem("cogito.imageModel.v1", modelId);
+    } catch { /* non-fatal */ }
+  }, []);
+
+  // Follow profile switches in the image picker: clear an explicit pick so
+  // the re-fetch auto-selects the new profile's imageModel/default. An
+  // explicit user pick survives remounts via ModelSelector's current-valid
+  // guard — this only resets across profile boundaries.
+  useEffect(() => {
+    const syncFromProfile = () => {
+      try {
+        localStorage.removeItem("cogito.imageModel.v1");
+      } catch { /* non-fatal */ }
+      setSelectedImageModel("");
+    };
+    window.addEventListener("cogito:profile-changed", syncFromProfile);
+    return () => window.removeEventListener("cogito:profile-changed", syncFromProfile);
   }, []);
 
   const { activeArtifact, setActiveArtifact } = useArtifact();
@@ -612,10 +647,12 @@ export function AppShell() {
       convId,
       assistantMsgId,
       prompt,
+      model,
     }: {
       convId: string;
       assistantMsgId: string;
       prompt: string;
+      model?: string;
     }) => {
       setStreamingConversationIds((prev) => prev.includes(convId) ? prev : [...prev, convId]);
       const controller = new AbortController();
@@ -662,7 +699,7 @@ export function AppShell() {
           response = await fetch("/api/images/generations", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt }),
+            body: JSON.stringify({ prompt, ...(model ? { model } : {}) }),
             signal: controller.signal,
           });
         } catch (networkError) {
@@ -764,7 +801,12 @@ export function AppShell() {
     setInputValue("");
 
     if (assistantNode.responseType === "image") {
-      void executeImageGeneration({ convId, assistantMsgId: assistantNode.id, prompt: text });
+      void executeImageGeneration({
+        convId,
+        assistantMsgId: assistantNode.id,
+        prompt: text,
+        model: selectedImageModel || undefined,
+      });
     } else {
       const apiMessages = linearMessages
         .filter((m) => m.id !== assistantNode.id && m.content.length > 0)
@@ -787,6 +829,7 @@ export function AppShell() {
     executeStream,
     executeImageGeneration,
     imageGenerationEnabled,
+    selectedImageModel,
   ]);
 
   const handleSend = useCallback(() => {
@@ -826,7 +869,12 @@ export function AppShell() {
       );
 
       if (assistantNode.responseType === "image") {
-        void executeImageGeneration({ convId, assistantMsgId: assistantNode.id, prompt: newContent });
+        void executeImageGeneration({
+          convId,
+          assistantMsgId: assistantNode.id,
+          prompt: newContent,
+          model: selectedImageModel || undefined,
+        });
       } else {
         const apiMessages = linearMessages
           .filter((m) => m.id !== assistantNode.id && m.content.length > 0)
@@ -840,7 +888,7 @@ export function AppShell() {
         });
       }
     },
-    [activeConversationId, isActiveStreaming, conversations, executeStream, executeImageGeneration],
+    [activeConversationId, isActiveStreaming, conversations, executeStream, executeImageGeneration, selectedImageModel],
   );
 
   const handleRetryTurn = useCallback(
@@ -894,7 +942,12 @@ export function AppShell() {
           ? tree.mapping[originalAssistant.parentId]?.content
           : undefined;
         if (!prompt) return;
-        void executeImageGeneration({ convId, assistantMsgId: assistantNode.id, prompt });
+        void executeImageGeneration({
+          convId,
+          assistantMsgId: assistantNode.id,
+          prompt,
+          model: selectedImageModel || undefined,
+        });
       } else {
         const apiMessages = linearMessages
           .filter((m) => m.id !== assistantNode.id && m.content.length > 0)
@@ -1104,6 +1157,8 @@ export function AppShell() {
     isStreaming: isActiveStreaming,
     selectedModel,
     onModelChange: setSelectedModel,
+    selectedImageModel,
+    onImageModelChange: handleImageModelChange,
     projectName: activeProjectName,
     onAttachFiles:
       effectiveProjectId || activeProjectId

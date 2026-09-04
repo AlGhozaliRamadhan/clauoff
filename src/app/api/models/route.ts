@@ -14,6 +14,7 @@ function getProfileMetadata() {
     name: p.name,
     backendUrl: p.backendUrl,
     defaultModel: p.defaultModel,
+    imageModel: p.imageModel ?? "",
     isActive: activeProfile ? p.id === activeProfile.id : false,
   }));
 
@@ -24,6 +25,7 @@ function getProfileMetadata() {
           name: activeProfile.name,
           backendUrl: activeProfile.backendUrl,
           defaultModel: activeProfile.defaultModel,
+          imageModel: activeProfile.imageModel ?? "",
         }
       : null,
     profiles,

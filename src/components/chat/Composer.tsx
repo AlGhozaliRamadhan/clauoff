@@ -14,6 +14,9 @@ interface ComposerProps {
   isStreaming?: boolean;
   selectedModel: string;
   onModelChange: (modelId: string) => void;
+  /** Image-mode model id (same backend list, separate from the chat model). */
+  selectedImageModel?: string;
+  onImageModelChange?: (modelId: string) => void;
   placeholder?: string;
   isCompact?: boolean;
   /** When set, show project knowledge indicator (ADR-0005). */
@@ -41,6 +44,8 @@ export function Composer({
   isStreaming = false,
   selectedModel,
   onModelChange,
+  selectedImageModel,
+  onImageModelChange,
   placeholder = "How can I help you today?",
   isCompact = false,
   projectName = null,
@@ -362,14 +367,12 @@ export function Composer({
         {/* Right: model selector + voice / send / stop */}
         <div className="flex items-center gap-2">
           {imageGenerationEnabled ? (
-            <button
-              type="button"
-              onClick={onOpenImageSettings || onOpenSettings}
-              className="rounded-lg border border-[var(--border-subtle)] px-2.5 py-1.5 text-xs font-medium text-[var(--accent-primary)] transition-colors hover:bg-[var(--surface-hover)]"
-              title="Configure the image model in API settings"
-            >
-              Image mode
-            </button>
+            <ModelSelector
+              selectedModel={selectedImageModel || selectedModel}
+              onModelChange={onImageModelChange || onModelChange}
+              onOpenSettings={onOpenImageSettings || onOpenSettings}
+              hideEffort
+            />
           ) : (
             <ModelSelector
               selectedModel={selectedModel}

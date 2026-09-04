@@ -32,6 +32,7 @@ interface ProfileItem {
   name: string;
   backendUrl: string;
   defaultModel: string;
+  imageModel?: string;
   isActive?: boolean;
 }
 
@@ -39,6 +40,10 @@ interface ModelSelectorProps {
   selectedModel: string;
   onModelChange: (modelId: string) => void;
   onOpenSettings?: () => void;
+  /** When true, the dropdown acts as an image-model picker: no effort UI,
+   *  trigger shows just the model name, and auto-select prefers the
+   *  active profile's imageModel. (ADR-0018 change log 2026-09-04) */
+  hideEffort?: boolean;
 }
 
 const EFFORT_KEY = "cogito.effort.v2";
@@ -46,7 +51,7 @@ const THINKING_KEY = "cogito.thinking.v2";
 
 type SubView = "main" | "effort" | "profiles";
 
-export function ModelSelector({ selectedModel, onModelChange, onOpenSettings }: ModelSelectorProps) {
+export function ModelSelector({ selectedModel, onModelChange, onOpenSettings, hideEffort = false }: ModelSelectorProps) {
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
   const [activeProfile, setActiveProfile] = useState<ProfileItem | null>(null);
   const [profiles, setProfiles] = useState<ProfileItem[]>([]);
@@ -79,9 +84,18 @@ export function ModelSelector({ selectedModel, onModelChange, onOpenSettings }: 
         throw new Error(data.error || `Failed to fetch models (${res.status})`);
       }
 
-      // Auto-select logic
+      // Auto-select logic. In image mode prefer the profile's imageModel
+      // (falling back to its chat default), otherwise use the chat default.
+      // An already-selected model that's still on this backend wins over the
+      // profile default so an explicit pick survives remounts/re-fetches.
       if (fetchedModels.length > 0) {
-        const targetModel = preferredModelId || (data.activeProfile?.defaultModel ?? "");
+        const profileDefault = hideEffort
+          ? (data.activeProfile?.imageModel || data.activeProfile?.defaultModel || "")
+          : (data.activeProfile?.defaultModel ?? "");
+        const currentValid = selectedModel && fetchedModels.some((m) => m.id === selectedModel)
+          ? selectedModel
+          : "";
+        const targetModel = preferredModelId || currentValid || profileDefault;
         if (targetModel && fetchedModels.some((m) => m.id === targetModel)) {
           onModelChange(targetModel);
         } else if (!selectedModel || !fetchedModels.some((m) => m.id === selectedModel)) {
@@ -93,7 +107,7 @@ export function ModelSelector({ selectedModel, onModelChange, onOpenSettings }: 
     } finally {
       setIsLoading(false);
     }
-  }, [onModelChange, selectedModel]);
+  }, [onModelChange, selectedModel, hideEffort]);
 
   // Fetch models on mount
   useEffect(() => {
@@ -163,7 +177,9 @@ export function ModelSelector({ selectedModel, onModelChange, onOpenSettings }: 
         const nextModels = Array.isArray(data.models) ? data.models : [];
         setLocalModels(nextModels);
         
-        const defaultForProfile = data.activeProfile?.defaultModel;
+        const defaultForProfile = hideEffort
+          ? (data.activeProfile?.imageModel || data.activeProfile?.defaultModel)
+          : data.activeProfile?.defaultModel;
         if (defaultForProfile && nextModels.some((m: LocalModel) => m.id === defaultForProfile)) {
           onModelChange(defaultForProfile);
         } else if (nextModels.length > 0) {
@@ -204,7 +220,7 @@ export function ModelSelector({ selectedModel, onModelChange, onOpenSettings }: 
     if (selectedModel) {
       const model = localModels.find((m) => m.id === selectedModel);
       const name = model ? model.label : selectedModel;
-      if (thinkingEnabled) {
+      if (!hideEffort && thinkingEnabled) {
         return `${name} ${effort}`;
       }
       return name;
@@ -362,19 +378,23 @@ export function ModelSelector({ selectedModel, onModelChange, onOpenSettings }: 
                 </div>
               )}
 
-              <div className="my-1 border-t border-[var(--border-subtle)]" />
+              {!hideEffort && (
+                <>
+                  <div className="my-1 border-t border-[var(--border-subtle)]" />
 
-              {/* Effort & Thinking Navigation Row */}
-              <div
-                className="flex items-center justify-between w-full px-4 py-2 hover:bg-[rgba(255,255,255,0.04)] cursor-pointer transition-colors duration-100"
-                onClick={() => setCurrentView("effort")}
-              >
-                <span className="text-sm-ui font-medium text-[var(--text-secondary)]">Effort & Thinking</span>
-                <div className="flex items-center gap-1 text-[var(--text-secondary)] opacity-80">
-                  <span className="text-xs">{thinkingEnabled ? effort : "Off"}</span>
-                  <ChevronRightIcon size={14} />
-                </div>
-              </div>
+                  {/* Effort & Thinking Navigation Row */}
+                  <div
+                    className="flex items-center justify-between w-full px-4 py-2 hover:bg-[rgba(255,255,255,0.04)] cursor-pointer transition-colors duration-100"
+                    onClick={() => setCurrentView("effort")}
+                  >
+                    <span className="text-sm-ui font-medium text-[var(--text-secondary)]">Effort & Thinking</span>
+                    <div className="flex items-center gap-1 text-[var(--text-secondary)] opacity-80">
+                      <span className="text-xs">{thinkingEnabled ? effort : "Off"}</span>
+                      <ChevronRightIcon size={14} />
+                    </div>
+                  </div>
+                </>
+              )}
 
               {/* Settings Shortcut */}
               {onOpenSettings && (
